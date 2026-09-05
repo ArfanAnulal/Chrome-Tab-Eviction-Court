@@ -22,20 +22,27 @@ const CONFIG = {
 // --- 2. ASSET DICTIONARY ---
 const ASSETS = {
   sprites: {
-    normal_idle: 'assets/Judge_Normal_Idle.gif',
-    normal_talking: 'assets/Judge_Normal_Talking.gif',
-    thinking: 'assets/Judge_Thinking.gif',
-    surprised: 'assets/Judge_Surprised.gif',
-    stern_idle: 'assets/Judge_Stern_Idle.gif',
-    stern_talking: 'assets/Judge_Stern_Talking.gif',
-    gavel: 'assets/Judge_Gavel.gif',
-    nodding: 'assets/Judge_Nodding.gif'
+    normal_idle: 'assets/sprites/Judge_Normal_Idle.gif',
+    normal_talking: 'assets/sprites/Judge_Normal_Talking.gif',
+    thinking: 'assets/sprites/Judge_Thinking.gif',
+    surprised: 'assets/sprites/Judge_Surprised.gif',
+    stern_idle: 'assets/sprites/Judge_Stern_Idle.gif',
+    stern_talking: 'assets/sprites/Judge_Stern_Talking.gif',
+    gavel: 'assets/sprites/Judge_Gavel.gif',
+    nodding: 'assets/sprites/Judge_Nodding.gif'
   },
   audio: {
-    gavel: 'assets/gavel.mp3',
-    objection: 'assets/objection.mp3',
-    typewriter: 'assets/typewriter.mp3',
-    acquitted: 'assets/acquitted.mp3'
+    gavel: 'assets/audio/gavel.mp3',
+    objection: 'assets/audio/objection.mp3',
+    typewriter: 'assets/audio/typewriter.mp3',
+    acquitted: 'assets/audio/acquitted.mp3'
+  },
+  backgrounds: {
+    courtroom: 'assets/backgrounds/Court-Room.jpg'
+  },
+  icons: {
+    favicon: 'assets/icons/Judge_Favicon.gif',
+    icon128: 'assets/icons/Judge_Favicon_128.png'
   }
 };
 
@@ -44,13 +51,16 @@ const STATE = {
   accusedTitle: '',
   accusedUrl: '',
   caseId: '',
+  courtTabId: null,
+  courtWinId: null,
   audioMuted: !CONFIG.AUDIO_ENABLED,
   audioUnlocked: false,
   isRecording: false,
   isSubmitting: false,
   currentPhase: 'INIT', // 'INIT' | 'AWAITING_UNLOCK' | 'ARRAIGNMENT' | 'AWAITING_PLEA' | 'DELIBERATING' | 'VERDICT_GUILTY' | 'VERDICT_PARDONED'
   currentJudgeSprite: 'normal_idle',
-  submittedPlea: ''
+  submittedPlea: '',
+  trialComplete: false
 };
 
 // --- 4. DOM ELEMENTS CACHE ---
@@ -145,6 +155,8 @@ class SoundController {
     this.sounds.gavel.volume = 0.9;
     this.sounds.objection.volume = 0.85;
     this.sounds.acquitted.volume = 0.85;
+    // Loop acquitted music continuously until court tab closes
+    this.sounds.acquitted.loop = true;
   }
 
   /**
@@ -781,22 +793,109 @@ function startScreenDismissCountdown(delayMs = 15000, verdictType = 'PARDONED') 
         DOM.promptIndicator.textContent = "[ ADJOURNED ]";
       }
 
-      // Close courtroom tab after the 15-second stay window has elapsed
-      if (window.chrome && chrome.tabs && chrome.tabs.getCurrent) {
-        chrome.tabs.getCurrent((tab) => {
-          if (tab && tab.id) {
-            chrome.tabs.remove(tab.id);
-          }
-        });
-      } else {
-        try {
-          window.close();
-        } catch (e) {
-          console.log("[Courtroom] window.close() blocked by browser policy:", e);
-        }
+      STATE.trialComplete = true;
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      sound.stopAll();
+
+      // Exit DOM fullscreen if active
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
       }
+
+      // Close courtroom tab cleanly with full extension authority
+      closeCourtroomTabCleanly();
     }
   }, 1000);
+}
+
+function closeCourtroomTabCleanly() {
+  console.log("⚖️ [COURT] Executing final adjournment and tab closure...", {
+    tabId: STATE.courtTabId,
+    winId: STATE.courtWinId
+  });
+
+  // 1. Remove beforeunload listener immediately so no prompt can block closure
+  window.removeEventListener('beforeunload', handleBeforeUnload);
+  STATE.trialComplete = true;
+  sound.stopAll();
+
+  // 2. Disarm anti-escape in persistent storage so background will NOT resurrect
+  if (window.chrome?.storage?.local) {
+    chrome.storage.local.set({
+      isCourtActive: false,
+      courtStatus: "ADJOURNED"
+    });
+  }
+
+  // 3. Exit DOM fullscreen if active
+  if (document.fullscreenElement && document.exitFullscreen) {
+    document.exitFullscreen().catch(() => {});
+  }
+
+  // 4. Restore window state from fullscreen to normal
+  const restoreWindow = (winId) => {
+    if (winId && window.chrome?.windows?.update) {
+      chrome.windows.update(winId, { state: "normal" }).catch(() => {});
+    } else if (window.chrome?.windows?.getCurrent) {
+      chrome.windows.getCurrent((currWin) => {
+        if (currWin?.id) {
+          chrome.windows.update(currWin.id, { state: "normal" }).catch(() => {});
+        }
+      });
+    }
+  };
+  restoreWindow(STATE.courtWinId);
+
+  // 5. Signal background service worker to close this tab
+  if (window.chrome?.runtime?.sendMessage) {
+    chrome.runtime.sendMessage({
+      action: "ADJOURN_AND_CLOSE",
+      tabId: STATE.courtTabId,
+      windowId: STATE.courtWinId
+    }, () => {});
+  }
+
+  // 6. Direct closure vector via chrome.tabs.remove
+  const attemptDirectRemove = () => {
+    if (STATE.courtTabId && window.chrome?.tabs?.remove) {
+      chrome.tabs.remove(STATE.courtTabId).catch((err) => {
+        console.warn("[COURT] Direct tabs.remove failed, trying query fallback:", err);
+        fallbackRemoveByQuery();
+      });
+    } else {
+      fallbackRemoveByQuery();
+    }
+  };
+
+  const fallbackRemoveByQuery = () => {
+    if (window.chrome?.tabs?.query) {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs && tabs[0]?.id) {
+          chrome.tabs.remove(tabs[0].id).catch(() => attemptLocalClose());
+        } else {
+          attemptLocalClose();
+        }
+      });
+    } else {
+      attemptLocalClose();
+    }
+  };
+
+  attemptDirectRemove();
+
+  // Redundant retry after 150ms in case tab removal was deferred
+  setTimeout(() => {
+    attemptDirectRemove();
+  }, 150);
+}
+
+function attemptLocalClose() {
+  try {
+    window.open('', '_self', '');
+    window.close();
+  } catch (e) {
+    console.log("[Courtroom] window.close() blocked by browser policy:", e);
+  }
 }
 
 // --- 9. COURTROOM FINITE STATE MACHINE (FSM) WITH OLLAMA BACKEND ---
@@ -1174,6 +1273,10 @@ function initCourtroom() {
   const urlParams = new URLSearchParams(window.location.search);
   STATE.accusedTitle = urlParams.get('title') || "Wikipedia: List of Unfinished Projects";
   STATE.accusedUrl = urlParams.get('url') || "https://en.wikipedia.org/wiki/List_of_unsolved_problems";
+  const parsedTabId = parseInt(urlParams.get('courtTabId'), 10);
+  const parsedWinId = parseInt(urlParams.get('courtWinId'), 10);
+  if (!isNaN(parsedTabId)) STATE.courtTabId = parsedTabId;
+  if (!isNaN(parsedWinId)) STATE.courtWinId = parsedWinId;
 
   const randomNum = Math.floor(1000 + Math.random() * 9000);
   STATE.caseId = `CASE #TAB-${randomNum}`;
@@ -1298,6 +1401,29 @@ function initCourtroom() {
     api: CONFIG.API_URL
   });
 
+  // Announce court open and enforce fullscreen immediately
+  notifyCourtOpened();
+  enforceCourtFullscreen();
+
+  // Confirm tabId and windowId asynchronously if not yet set from URL
+  if (window.chrome?.tabs?.getCurrent) {
+    chrome.tabs.getCurrent((tab) => {
+      if (tab) {
+        if (!STATE.courtTabId) STATE.courtTabId = tab.id;
+        if (!STATE.courtWinId) STATE.courtWinId = tab.windowId;
+        notifyCourtOpened();
+      }
+    });
+  } else if (window.chrome?.tabs?.query) {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs && tabs[0]) {
+        if (!STATE.courtTabId) STATE.courtTabId = tabs[0].id;
+        if (!STATE.courtWinId) STATE.courtWinId = tabs[0].windowId;
+        notifyCourtOpened();
+      }
+    });
+  }
+
   // Check autoplay status on start
   sound.checkAutoplay(
     () => {
@@ -1308,6 +1434,111 @@ function initCourtroom() {
     }
   );
 }
+
+// --- 11. ANTI-ESCAPE & FULLSCREEN ANNOYANCE CONTROLLER ---
+function enforceCourtFullscreen() {
+  // 1. Chrome Extension Windows API (Immediate window-level fullscreen, NO user gesture required!)
+  if (window.chrome && chrome.windows && chrome.windows.getCurrent) {
+    chrome.windows.getCurrent((win) => {
+      if (win && win.id) {
+        chrome.windows.update(win.id, { state: "fullscreen", focused: true }).catch(() => {});
+      }
+    });
+  }
+
+  // 2. DOM Fullscreen API (when user interacts)
+  try {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  } catch (e) {}
+
+  // 3. Message background script to guarantee fullscreen
+  if (window.chrome && chrome.runtime && chrome.runtime.sendMessage) {
+    chrome.runtime.sendMessage({ action: "REQUEST_FULLSCREEN" }, () => {});
+  }
+}
+
+function notifyCourtOpened() {
+  const tabId = STATE.courtTabId;
+  const winId = STATE.courtWinId;
+
+  if (window.chrome?.storage?.local) {
+    chrome.storage.local.set({
+      isCourtActive: true,
+      courtStatus: "IN_SESSION",
+      activeCourtTabId: tabId,
+      activeCourtWindowId: winId,
+      activeCourtUrl: window.location.href
+    });
+  }
+
+  if (window.chrome?.runtime?.sendMessage) {
+    chrome.runtime.sendMessage({
+      action: "COURT_OPENED",
+      tabId: tabId,
+      windowId: winId,
+      url: window.location.href
+    }, () => {});
+  }
+
+  if (winId && window.chrome?.windows?.update) {
+    chrome.windows.update(winId, { state: "fullscreen", focused: true }).catch(() => {});
+  }
+}
+
+// Named handler so it can be cleanly removed when trial completes
+function handleBeforeUnload(e) {
+  if (!STATE.trialComplete) {
+    e.preventDefault();
+    e.returnValue = "COURT IS IN SESSION! Attorney General Tab-ney Wright has not adjourned!";
+    return e.returnValue;
+  }
+}
+
+window.addEventListener('beforeunload', handleBeforeUnload);
+
+// Relentlessly retain focus if user attempts to switch tabs, windows, or blur
+function snapFocusBackToCourt() {
+  if (!STATE.trialComplete) {
+    window.focus();
+    const tabId = STATE.courtTabId;
+    const winId = STATE.courtWinId;
+
+    if (tabId && window.chrome?.tabs?.update) {
+      chrome.tabs.update(tabId, { active: true }).catch(() => {});
+    }
+    if (winId && window.chrome?.windows?.update) {
+      chrome.windows.update(winId, { focused: true }).catch(() => {});
+    }
+    if (window.chrome?.runtime?.sendMessage) {
+      chrome.runtime.sendMessage({ action: "RETAIN_COURT_FOCUS", tabId: tabId, windowId: winId }, () => {});
+    }
+  }
+}
+
+window.addEventListener('blur', snapFocusBackToCourt);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && !STATE.trialComplete) {
+    snapFocusBackToCourt();
+  }
+});
+
+// Periodic heartbeat: if tab is hidden and trial is not complete, snap back instantly
+const courtGuardInterval = setInterval(() => {
+  if (STATE.trialComplete) {
+    clearInterval(courtGuardInterval);
+    return;
+  }
+  if (document.hidden) {
+    snapFocusBackToCourt();
+  }
+}, 400);
+
+// Any user gesture (pointerdown, click, keydown) enforces fullscreen
+window.addEventListener('pointerdown', enforceCourtFullscreen, { passive: true });
+window.addEventListener('keydown', enforceCourtFullscreen, { passive: true });
+window.addEventListener('click', enforceCourtFullscreen, { passive: true });
 
 // Kick off initialization on DOM ready
 if (document.readyState === 'loading') {

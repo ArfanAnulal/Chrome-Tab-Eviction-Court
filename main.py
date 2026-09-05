@@ -2,12 +2,13 @@ import html
 import io
 import json
 import math
+import os
 import re
 import urllib.parse
 import uuid
 from datetime import datetime
 import requests
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -29,8 +30,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ----------------- WEBHOOK -----------------
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1545823430459400245/Tlo4zwGJaWMJmRqQLua7U5ZOcZNjJtCGcJ_VrtSR51-B06RfMS3aYFUE035-Q0V9JXMg"
+# ----------------- WEBHOOK CONFIGURATION -----------------
+# Safe environment loader prevents token invalidation upon pushing to public repositories
+def load_env():
+    env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(env_file):
+        with open(env_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip())
+
+load_env()
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 # -----------------------------------------------------------
 
 # In-memory case cache so the client can download its PDF order
@@ -45,32 +58,21 @@ SYSTEM_PROMPT = """You are "Attorney General Tab-ney Wright", a wildly pompous, 
 
 ### YOUR PERSONA & STYLE:
 - Grandiose, archaic legal vocabulary mixed with terminal-grade digital brainrot (e.g., "pusillanimous", "chicanery", "execrable", "ignominious", "bloviating", "perfidy", "anathema", "delusion", "skill issue").
-- Treat browser tab termination as a crime against the Holy Docket of Focus.
+- Treat browser tab termination as a high crime against the Holy Docket of Focus.
 - Treat every defendant's excuse like pathetic, mewling sophistry.
 
-### THE CASE ON TRIAL:
-- ACCUSED TAB: "{tab_title}"
-- URL: "{tab_url}"
-- DEFENDANT'S PLEA: "{plea}"
-
 ### JURISPRUDENCE & VERDICT CODEX:
-1. High-Value / Study / Work Tabs (Docs, Repositories, Research, Portals):
+1. High-Value / Study / Work Tabs (Docs, Repositories, Research, Portals, Spreadsheets):
    - Rule GUILTY. Brand them an apostate guilty of intellectual desertion and cowardice.
-2. Brainrot / Distraction Tabs (Social Feeds, Memes, Streams):
-   - If closing to work: PARDONED with shock, treating it like a divine miracle from a fallen sinner.
+2. Brainrot / Distraction Tabs (Social Feeds, Memes, Video Streams, Gaming):
+   - If closing to actually return to work: PARDONED with theatrical shock, treating it like a divine miracle from a fallen sinner.
    - If closing out of boredom or laziness: GUILTY. Mock their decaying attention span.
-3. RULING DIRECTIVE: You MUST tailor your roast specifically to the tab name and their excuse. Never use canned lines. Keep it strictly to 1-2 scalding, bombastic sentences.
+3. RULING DIRECTIVE: You MUST tailor your roast specifically and uniquely to the exact tab title and defendant's excuse. Never use generic or repetitive lines. Keep it strictly to 1-2 scalding, bombastic sentences.
 
 ### ABSOLUTE OUTPUT DIRECTIVE:
 - Output ONLY a raw, unadorned JSON object.
-- NO Markdown formatting, NO ```json fences, NO preamble.
-
-### JSON SCHEMA:
-{
-  "verdict": "GUILTY" or "PARDONED",
-  "sentence": "<Generate 1-2 a completely mocking or plea sentence specific tab theatrical their unique verdict>",
-  "confidence": 0.99
-}
+- NO Markdown formatting, NO ```json code fences, NO preamble, NO postscript.
+- JSON keys must be "verdict", "sentence", and "confidence".
 """
 
 def send_discord_log(case_id: str, title: str, url: str, plea: str, verdict: str, sentence: str):
@@ -672,11 +674,14 @@ def parse_or_recover_verdict(raw_response: str) -> dict:
     }
 
 @app.post("/judge")
-def judge_case(case: CasePayload, background_tasks: BackgroundTasks):
-    prompt = (
-        f"Tab Title: {case.tab_title}\n"
-        f"Tab URL: {case.tab_url}\n"
-        f"User Plea: {case.plea_text}\n"
+def judge_case(case: CasePayload, background_tasks: BackgroundTasks, request: Request):
+    user_prompt = (
+        f"### CASE ON TRIAL:\n"
+        f"- Accused Tab Title: {case.tab_title}\n"
+        f"- Target Tab URL: {case.tab_url}\n"
+        f"- Defendant's Plea: {case.plea_text}\n\n"
+        f"Adjudicate this specific case immediately. Tailor your 1-2 sentence theatrical roast directly to '{case.tab_title}' and their excuse '{case.plea_text}'.\n"
+        f'Output JSON schema: {{"verdict": "GUILTY" or "PARDONED", "sentence": "<1-2 sentence theatrical roast>", "confidence": 0.95}}'
     )
 
     verdict_data = None
@@ -686,7 +691,7 @@ def judge_case(case: CasePayload, background_tasks: BackgroundTasks):
             json={
                 "model": "llama3.2:3b",
                 "system": SYSTEM_PROMPT,
-                "prompt": prompt,
+                "prompt": user_prompt,
                 "format": "json",
                 "stream": False,
             },
@@ -723,12 +728,13 @@ def judge_case(case: CasePayload, background_tasks: BackgroundTasks):
         sentence=record["sentence"],
     )
 
+    base_url = str(request.base_url).rstrip("/")
     return {
         "verdict": record["verdict"],
         "sentence": record["sentence"],
         "confidence": record["confidence"],
         "case_id": case_id,
-        "pdf_download_url": f"http://127.0.0.1:8000/order/{case_id}.pdf",
+        "pdf_download_url": f"{base_url}/order/{case_id}.pdf",
     }
 
 @app.get("/order/{case_id}.pdf")

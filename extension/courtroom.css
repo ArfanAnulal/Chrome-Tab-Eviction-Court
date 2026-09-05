@@ -6,7 +6,7 @@
 /* --- 1. LOCAL RETRO FONTS --- */
 @font-face {
   font-family: 'Press Start 2P';
-  src: url('./Press_Start_2P/PressStart2P-Regular.ttf') format('truetype');
+  src: url('./assets/fonts/Press_Start_2P/PressStart2P-Regular.ttf') format('truetype');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -14,7 +14,7 @@
 
 @font-face {
   font-family: 'VT323';
-  src: url('./VT323/VT323-Regular.ttf') format('truetype');
+  src: url('./assets/fonts/VT323/VT323-Regular.ttf') format('truetype');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -169,6 +169,30 @@ html, body {
   color: #000;
 }
 
+.discord-hud-btn {
+  background: #5865F2;
+  border: 1px solid #7983f5;
+  color: #ffffff;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  transition: all 0.1s ease;
+}
+
+.discord-hud-btn:hover {
+  background: #4752c4;
+  border-color: #ffffff;
+  box-shadow: 0 0 10px rgba(88, 101, 242, 0.8);
+  color: #ffffff;
+}
+
 /* ACCUSED TAB DOSSIER BAR */
 .dossier-card {
   display: flex;
@@ -235,6 +259,7 @@ html, body {
   min-height: 280px;
   margin-top: 4px;
   margin-bottom: 6px;
+  overflow: hidden;
 }
 
 /* Courtroom background backdrop */
@@ -284,31 +309,40 @@ html, body {
 
 /* Judge Sprite Presentation */
 .judge-wrapper {
-  position: relative;
-  z-index: 2;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  width: 100%;
-  height: 100%;
-  padding-bottom: 0px;
+  pointer-events: none;
+  z-index: 2;
+  overflow: visible;
 }
 
 #judge-sprite {
-  width: 520px;
-  height: 390px;
-  max-height: 98%;
+  width: auto;
+  height: min(480px, 94%);
+  max-width: 90%;
+  aspect-ratio: 4 / 3;
   object-fit: contain;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   filter: drop-shadow(0 16px 32px rgba(0, 0, 0, 0.95));
-  transform: scale(1.28) translateY(16px);
+  /* Mathematically cancel the 31.77% (61/192) transparent bottom padding in the original DS sprite.
+     With -46px, the judge's robe baseline lands exactly 46px above the stage bottom.
+     With the court bench at height 58px, the bench cleanly overlaps the judge's robe by 12px,
+     keeping his hands, sleeves, and gavel desk prominently resting right above the wooden trim
+     across all window sizes and F11 full screen without any floating gap. */
+  transform: translateY(calc(31.77% - 46px));
   transform-origin: bottom center;
   transition: transform 0.1s ease;
 }
 
 #judge-sprite.gavel-active {
-  transform: scale(1.28) translateY(0px);
+  transform: translateY(calc(31.77% - 46px));
 }
 
 /* Wooden Court Bench Overlay */
@@ -832,11 +866,13 @@ html, body {
   100% { transform: scale(1.01); }
 }
 
-/* PDF ORDER DOWNLOAD BUTTON */
+/* PDF ORDER DOWNLOAD BUTTON & DISCORD DOCKET LINK */
 #pdf-container {
   display: none;
   justify-content: center;
   align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
   padding: 4px 0;
   margin: 8px 0 12px 0;
   z-index: 10;
@@ -875,6 +911,31 @@ html, body {
   transform: translateY(-1px);
   box-shadow: 0 0 18px rgba(240, 192, 64, 0.7), 0 3px 0 #5c4305;
   color: #000;
+}
+
+.discord-verdict-btn {
+  background: linear-gradient(180deg, #5865F2 0%, #4752c4 100%);
+  color: #ffffff;
+  border: 2px solid #9aa5ff;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  box-shadow: 0 0 12px rgba(88, 101, 242, 0.4), 0 2px 0 #282f7c;
+  transition: all 0.1s ease;
+}
+
+.discord-verdict-btn:hover {
+  background: linear-gradient(180deg, #6c78fa 0%, #5865F2 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 0 18px rgba(88, 101, 242, 0.8), 0 3px 0 #282f7c;
+  color: #ffffff;
 }
 
 /* 15-SECOND ADJOURN COUNTDOWN BANNER */
@@ -1097,7 +1158,7 @@ html, body {
     max-height: 240px;
   }
   #judge-sprite {
-    max-height: 195px;
+    height: min(220px, 94%);
   }
   #dialogue-text {
     font-size: 20px;

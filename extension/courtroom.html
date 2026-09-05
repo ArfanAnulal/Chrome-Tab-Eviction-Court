@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Attorney General Tab-ney Wright</title>
-  <link rel="icon" type="image/gif" href="assets/Judge_Favicon.gif?v=3">
-  <link rel="icon" type="image/png" sizes="48x48" href="assets/Judge_Favicon_48.png?v=3">
-  <link rel="icon" type="image/png" sizes="32x32" href="assets/Judge_Favicon_32.png?v=3">
-  <link rel="icon" type="image/png" sizes="16x16" href="assets/Judge_Favicon_16.png?v=3">
-  <link rel="shortcut icon" href="favicon.ico?v=3">
+  <link rel="icon" type="image/gif" href="assets/icons/Judge_Favicon.gif?v=4">
+  <link rel="icon" type="image/png" sizes="48x48" href="assets/icons/Judge_Favicon_48.png?v=4">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/Judge_Favicon_32.png?v=4">
+  <link rel="icon" type="image/png" sizes="16x16" href="assets/icons/Judge_Favicon_16.png?v=4">
+  <link rel="shortcut icon" href="assets/icons/favicon.ico?v=4">
   <!-- Google Fonts fallback for high-res systems -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,7 +24,7 @@
   <!-- FULLSCREEN GAVEL STRIKE CUTSCENE OVERLAY -->
   <div id="gavel-cutscene" class="gavel-cutscene-overlay" aria-hidden="true">
     <div class="gavel-cutscene-inner">
-      <img id="gavel-cutscene-img" src="assets/Judge_Gavel.gif" alt="Judge Gavel Slam Cutscene" draggable="false">
+      <img id="gavel-cutscene-img" src="assets/sprites/Judge_Gavel.gif" alt="Judge Gavel Slam Cutscene" draggable="false">
     </div>
   </div>
 
@@ -41,6 +41,7 @@
         <div class="hud-status-tags">
           <span class="status-badge" id="engine-status">OLLAMA AI JURY</span>
           <span class="case-id-tag" id="case-id">CASE #TAB-8842</span>
+          <a class="discord-hud-btn" id="discord-hud-btn" href="https://discord.com/channels/1545823076761993296/1545823077433090130" target="_blank" rel="noopener noreferrer" title="View Live Trial Docket on Discord">💬 DISCORD DOCKET</a>
           <button class="audio-toggle-btn" id="audio-btn" title="Toggle Courtroom Audio">🔊 SFX: ON</button>
         </div>
       </div>
@@ -64,14 +65,14 @@
       <div class="court-backdrop">
         <div class="backdrop-pillars"></div>
         <!-- Layered Courtroom Artwork -->
-        <img class="court-room-bg" src="assets/Court-Room.jpg" alt="Courtroom Chamber" draggable="false">
+        <img class="court-room-bg" src="assets/backgrounds/Court-Room.jpg" alt="Courtroom Chamber" draggable="false">
       </div>
 
       <!-- Judge Animated Sprite -->
       <div class="judge-wrapper">
         <img 
           id="judge-sprite" 
-          src="assets/Judge_Normal_Idle.gif" 
+          src="assets/sprites/Judge_Normal_Idle.gif" 
           alt="Honorable Tab Magistrate" 
           draggable="false"
         >
@@ -92,7 +93,10 @@
     <!-- OFFICIAL COURT ORDER PDF DOWNLOAD (Revealed on Verdict) -->
     <div id="pdf-container">
       <a id="pdf-download-btn" class="retro-btn pdf-order-btn" target="_blank" href="#">
-        📜 DOWNLOAD OFFICIAL COURT ORDER WARRANT (PDF)
+        DOWNLOAD OFFICIAL COURT ORDER WARRANT (PDF)
+      </a>
+      <a id="discord-verdict-btn" class="retro-btn discord-verdict-btn" target="_blank" rel="noopener noreferrer" href="https://discord.com/channels/1545823076761993296/1545823077433090130">
+        VIEW VERDICT ON DISCORD
       </a>
     </div>
 
@@ -153,7 +157,6 @@
             <span id="mic-btn-text">VOICE PLEA</span>
           </button>
           <button type="button" id="submit-btn" class="retro-btn">
-            <span>⚡</span>
             <span>SUBMIT PLEA</span>
           </button>
 

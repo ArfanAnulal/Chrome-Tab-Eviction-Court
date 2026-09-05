@@ -65,7 +65,6 @@ function isWhitelisted(rawUrl) {
       }
     }
   } catch {
-    // If URL parsing fails, fallback to simple substring safeguard
     if (urlStr.includes("courtroom.html") || urlStr.includes("localhost") || urlStr.includes("127.0.0.1")) {
       return true;
     }
@@ -74,8 +73,112 @@ function isWhitelisted(rawUrl) {
   return false;
 }
 
-// 1. Continuously cache tab title & URL while active, skipping whitelisted tabs
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+/**
+ * Persistent Court Session Manager (Survives MV3 Service Worker restarts)
+ */
+async function getCourtSession() {
+  try {
+    const data = await chrome.storage.local.get([
+      'isCourtActive',
+      'courtStatus',
+      'activeCourtTabId',
+      'activeCourtWindowId',
+      'activeCourtUrl'
+    ]);
+    return {
+      isCourtActive: Boolean(data.isCourtActive),
+      courtStatus: data.courtStatus || "IDLE", // "IDLE" | "IN_SESSION" | "ADJOURNED"
+      activeCourtTabId: data.activeCourtTabId || null,
+      activeCourtWindowId: data.activeCourtWindowId || null,
+      activeCourtUrl: data.activeCourtUrl || null
+    };
+  } catch (err) {
+    return {
+      isCourtActive: false,
+      courtStatus: "IDLE",
+      activeCourtTabId: null,
+      activeCourtWindowId: null,
+      activeCourtUrl: null
+    };
+  }
+}
+
+async function setCourtSession(session) {
+  try {
+    await chrome.storage.local.set({
+      isCourtActive: Boolean(session.isCourtActive),
+      courtStatus: session.courtStatus || "IN_SESSION",
+      activeCourtTabId: session.activeCourtTabId || null,
+      activeCourtWindowId: session.activeCourtWindowId || null,
+      activeCourtUrl: session.activeCourtUrl || null
+    });
+  } catch (err) {}
+}
+
+async function clearCourtSession() {
+  try {
+    await chrome.storage.local.set({
+      isCourtActive: false,
+      courtStatus: "ADJOURNED",
+      activeCourtTabId: null,
+      activeCourtWindowId: null,
+      activeCourtUrl: null
+    });
+  } catch (err) {}
+}
+
+// 1. Initialize tab cache on startup so already-open tabs can be evicted
+function initTabCache() {
+  if (chrome.tabs && chrome.tabs.query) {
+    chrome.tabs.query({}, (tabs) => {
+      if (tabs) {
+        for (const tab of tabs) {
+          if (tab.id && tab.url && !isWhitelisted(tab.url)) {
+            tabCache[tab.id] = {
+              url: tab.url,
+              title: tab.title || tab.url
+            };
+          }
+        }
+      }
+    });
+  }
+}
+
+initTabCache();
+chrome.runtime.onInstalled.addListener(initTabCache);
+chrome.runtime.onStartup.addListener(initTabCache);
+
+chrome.tabs.onCreated.addListener((tab) => {
+  if (tab.id && tab.url && !isWhitelisted(tab.url)) {
+    tabCache[tab.id] = {
+      url: tab.url,
+      title: tab.title || tab.url
+    };
+  }
+});
+
+// 2. Continuously cache tab title & URL while active, skipping whitelisted tabs
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  // If ANY tab opens or navigates to courtroom.html, immediately track it and enforce fullscreen
+  if (tab.url && tab.url.includes("courtroom.html")) {
+    const session = await getCourtSession();
+    // Do not re-lock if the court is already marked ADJOURNED
+    if (session.courtStatus !== "ADJOURNED") {
+      await setCourtSession({
+        isCourtActive: true,
+        courtStatus: "IN_SESSION",
+        activeCourtTabId: tabId,
+        activeCourtWindowId: tab.windowId,
+        activeCourtUrl: tab.url
+      });
+
+      if (tab.windowId) {
+        chrome.windows.update(tab.windowId, { state: "fullscreen", focused: true }).catch(() => {});
+      }
+    }
+  }
+
   if (!tab.url || isWhitelisted(tab.url)) {
     delete tabCache[tabId];
     return;
@@ -86,13 +189,42 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   };
 });
 
-// 2. Clean up cache when tab is replaced (e.g. prerendering)
+// 3. Clean up cache when tab is replaced (e.g. prerendering)
 chrome.tabs.onReplaced?.addListener((addedTabId, removedTabId) => {
   delete tabCache[removedTabId];
 });
 
-// 3. Intercept tab close with whitelist protection
-chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+// 4. Intercept tab close with whitelist protection & anti-escape annoyance
+chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
+  const session = await getCourtSession();
+
+  // Annoyance: Only resurrect IF court is actively IN_SESSION!
+  // If the court is ADJOURNED, allow the tab to close cleanly without resurrection!
+  if (session.courtStatus === "IN_SESSION" && session.isCourtActive && tabId === session.activeCourtTabId && session.activeCourtUrl) {
+    console.warn("[Tab Courtroom] Contempt of court! Escape attempt blocked. Re-opening courtroom!");
+    const baseCourtUrl = session.activeCourtUrl;
+    const sep = baseCourtUrl.includes("?") ? "&" : "?";
+    const contemptUrl = baseCourtUrl.includes("contempt=1") ? baseCourtUrl : `${baseCourtUrl}${sep}contempt=1`;
+
+    chrome.tabs.create({ url: contemptUrl, active: true }, async (newTab) => {
+      if (newTab && newTab.id) {
+        const fullUrl = `${contemptUrl}&courtTabId=${newTab.id}&courtWinId=${newTab.windowId}`;
+        chrome.tabs.update(newTab.id, { url: fullUrl }).catch(() => {});
+        await setCourtSession({
+          isCourtActive: true,
+          courtStatus: "IN_SESSION",
+          activeCourtTabId: newTab.id,
+          activeCourtWindowId: newTab.windowId,
+          activeCourtUrl: fullUrl
+        });
+        if (newTab.windowId) {
+          chrome.windows.update(newTab.windowId, { state: "fullscreen", focused: true }).catch(() => {});
+        }
+      }
+    });
+    return;
+  }
+
   const closedTab = tabCache[tabId];
   delete tabCache[tabId];
 
@@ -104,29 +236,175 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
   }
 
   // Launch Courtroom Tab passing metadata via URL parameters
-  const courtUrl = chrome.runtime.getURL(
+  const baseCourtUrl = chrome.runtime.getURL(
     `courtroom.html?url=${encodeURIComponent(closedTab.url)}&title=${encodeURIComponent(closedTab.title || closedTab.url)}`
   );
 
-  chrome.tabs.create({ url: courtUrl }, (tab) => {
+  chrome.tabs.create({ url: baseCourtUrl, active: true }, async (tab) => {
     if (chrome.runtime.lastError) {
       console.warn("[Tab Courtroom] Failed to open courtroom tab:", chrome.runtime.lastError.message);
+      return;
+    }
+    if (tab && tab.id) {
+      const fullCourtUrl = `${baseCourtUrl}&courtTabId=${tab.id}&courtWinId=${tab.windowId}`;
+      chrome.tabs.update(tab.id, { url: fullCourtUrl }).catch(() => {});
+      await setCourtSession({
+        isCourtActive: true,
+        courtStatus: "IN_SESSION",
+        activeCourtTabId: tab.id,
+        activeCourtWindowId: tab.windowId,
+        activeCourtUrl: fullCourtUrl
+      });
+
+      // Automatically make courtroom window full screen!
+      if (tab.windowId) {
+        chrome.windows.update(tab.windowId, { state: "fullscreen", focused: true }).catch(() => {});
+      }
     }
   });
 });
 
-// 4. Listen for verdict actions sent from courtroom.html with robust error handling
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === "REVIVE_TAB" && message.url) {
-    try {
-      const courtTabId = message.courtTabId || sender?.tab?.id;
-      const courtWindowId = message.courtWindowId || sender?.tab?.windowId;
+// 5. ANNOYANCE ENGINE: Prevent switching away from the courtroom tab until trial finishes
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  const session = await getCourtSession();
+  if (session.courtStatus === "IN_SESSION" && session.isCourtActive && session.activeCourtTabId && activeInfo.tabId !== session.activeCourtTabId) {
+    chrome.tabs.update(session.activeCourtTabId, { active: true }).catch(() => {});
+    if (session.activeCourtWindowId) {
+      chrome.windows.update(session.activeCourtWindowId, { focused: true }).catch(() => {});
+    }
+  }
+});
 
-      // Find the normal tab window (non-court window) or target window to place the resurrected tab
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  const session = await getCourtSession();
+  if (session.courtStatus === "IN_SESSION" && session.isCourtActive && session.activeCourtWindowId && windowId !== session.activeCourtWindowId) {
+    chrome.windows.update(session.activeCourtWindowId, { focused: true }).catch(() => {});
+    if (session.activeCourtTabId) {
+      chrome.tabs.update(session.activeCourtTabId, { active: true }).catch(() => {});
+    }
+  }
+});
+
+// 6. Toolbar action button click launches courtroom in fullscreen
+chrome.action?.onClicked?.addListener((tab) => {
+  const baseCourtUrl = chrome.runtime.getURL("courtroom.html");
+  chrome.tabs.create({ url: baseCourtUrl, active: true }, async (newTab) => {
+    if (newTab && newTab.id) {
+      const fullCourtUrl = `${baseCourtUrl}?courtTabId=${newTab.id}&courtWinId=${newTab.windowId}`;
+      chrome.tabs.update(newTab.id, { url: fullCourtUrl }).catch(() => {});
+      await setCourtSession({
+        isCourtActive: true,
+        courtStatus: "IN_SESSION",
+        activeCourtTabId: newTab.id,
+        activeCourtWindowId: newTab.windowId,
+        activeCourtUrl: fullCourtUrl
+      });
+      if (newTab.windowId) {
+        chrome.windows.update(newTab.windowId, { state: "fullscreen", focused: true }).catch(() => {});
+      }
+    }
+  });
+});
+
+// 7. Listen for courtroom actions & state updates with robust error handling
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  handleRuntimeMessage(message, sender)
+    .then(sendResponse)
+    .catch((err) => sendResponse({ status: "error", message: err.message }));
+  return true; // Keep message channel open for asynchronous sendResponse
+});
+
+async function handleRuntimeMessage(message, sender) {
+  if (message.action === "COURT_OPENED") {
+    const session = await getCourtSession();
+    const tabId = message.tabId || sender?.tab?.id || session.activeCourtTabId;
+    const winId = message.windowId || sender?.tab?.windowId || session.activeCourtWindowId;
+    const url = message.url || sender?.tab?.url || session.activeCourtUrl;
+
+    await setCourtSession({
+      isCourtActive: true,
+      courtStatus: "IN_SESSION",
+      activeCourtTabId: tabId,
+      activeCourtWindowId: winId,
+      activeCourtUrl: url
+    });
+
+    if (winId) {
+      chrome.windows.update(winId, { state: "fullscreen", focused: true }).catch(() => {});
+    } else {
+      chrome.windows.getLastFocused((lastWin) => {
+        if (lastWin && lastWin.id) {
+          chrome.windows.update(lastWin.id, { state: "fullscreen", focused: true }).catch(() => {});
+        }
+      });
+    }
+
+    return { status: "court_locked", courtTabId: tabId };
+  }
+
+  if (message.action === "REQUEST_FULLSCREEN") {
+    const session = await getCourtSession();
+    const winId = message.windowId || sender?.tab?.windowId || session.activeCourtWindowId;
+    if (winId) {
+      chrome.windows.update(winId, { state: "fullscreen", focused: true }).catch(() => {});
+    } else {
+      chrome.windows.getLastFocused((currWin) => {
+        if (currWin && currWin.id) {
+          chrome.windows.update(currWin.id, { state: "fullscreen", focused: true }).catch(() => {});
+        }
+      });
+    }
+    return { status: "fullscreen_enforced" };
+  }
+
+  if (message.action === "RETAIN_COURT_FOCUS") {
+    const session = await getCourtSession();
+    if (session.courtStatus === "IN_SESSION" && session.isCourtActive && session.activeCourtTabId) {
+      chrome.tabs.update(session.activeCourtTabId, { active: true }).catch(() => {});
+      if (session.activeCourtWindowId) {
+        chrome.windows.update(session.activeCourtWindowId, { focused: true }).catch(() => {});
+      }
+    }
+    return { status: "focus_retained" };
+  }
+
+  if (message.action === "ADJOURN_AND_CLOSE" || message.action === "CLOSE_COURT_TAB" || message.action === "TRIAL_FINISHED" || message.action === "COURT_ADJOURNED") {
+    const session = await getCourtSession();
+    const targetWinId = message.windowId || sender?.tab?.windowId || session.activeCourtWindowId;
+    const targetTabId = message.tabId || sender?.tab?.id || session.activeCourtTabId;
+
+    // 1. Mark as ADJOURNED so onRemoved does NOT resurrect this tab!
+    await clearCourtSession();
+
+    // 2. Restore browser window from fullscreen back to normal
+    if (targetWinId) {
+      chrome.windows.update(targetWinId, { state: "normal" }).catch(() => {});
+    } else {
+      chrome.windows.getLastFocused((lastWin) => {
+        if (lastWin && lastWin.id) {
+          chrome.windows.update(lastWin.id, { state: "normal" }).catch(() => {});
+        }
+      });
+    }
+
+    // 3. Remove the courtroom tab with background worker authority
+    if (targetTabId) {
+      chrome.tabs.remove(targetTabId).catch(() => {});
+    }
+
+    return { status: "court_unlocked_and_closed", closedTabId: targetTabId };
+  }
+
+  if (message.action === "REVIVE_TAB" && message.url) {
+    const session = await getCourtSession();
+    const courtTabId = message.courtTabId || sender?.tab?.id || session.activeCourtTabId;
+    const courtWindowId = message.courtWindowId || sender?.tab?.windowId || session.activeCourtWindowId;
+
+    return new Promise((resolve) => {
       chrome.windows.getAll({ populate: false, windowTypes: ['normal'] }, (allWindows) => {
         let targetWindowId = null;
         if (allWindows && allWindows.length > 0) {
-          // If a court window was specified, place the tab in the other browser window
           const otherWin = allWindows.find(w => w.id !== courtWindowId);
           targetWindowId = otherWin ? otherWin.id : (courtWindowId || allWindows[0].id);
         }
@@ -134,7 +412,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const createOptions = {
           url: message.url,
           pinned: true,
-          active: false // Explicitly open in background without activating
+          active: false
         };
         if (targetWindowId !== null) {
           createOptions.windowId = targetWindowId;
@@ -143,16 +421,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chrome.tabs.create(createOptions, (newTab) => {
           if (chrome.runtime.lastError) {
             console.warn("[Tab Courtroom] Tab revival failed:", chrome.runtime.lastError.message);
-            sendResponse({ status: "error", error: chrome.runtime.lastError.message });
+            resolve({ status: "error", error: chrome.runtime.lastError.message });
             return;
           }
 
-          // Force the new tab to remain inactive
           if (newTab && newTab.id) {
             chrome.tabs.update(newTab.id, { active: false }).catch(() => {});
           }
 
-          // Relentlessly lock focus on the courtroom tab and courtroom window
+          // Lock focus firmly back on the courtroom tab and window
           const retainCourtFocus = () => {
             if (courtTabId) {
               chrome.tabs.update(courtTabId, { active: true }).catch(() => {});
@@ -166,13 +443,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           setTimeout(retainCourtFocus, 50);
           setTimeout(retainCourtFocus, 250);
 
-          sendResponse({ status: "tab_resurrected", tabId: newTab ? newTab.id : null });
+          resolve({ status: "tab_resurrected", tabId: newTab ? newTab.id : null });
         });
       });
-    } catch (err) {
-      console.warn("[Tab Courtroom] Unexpected error during tab revival:", err);
-      sendResponse({ status: "error", error: err.message });
-    }
-    return true; // Keep sendResponse channel open for async response
+    });
   }
-});
+
+  return { status: "unknown_action" };
+}
