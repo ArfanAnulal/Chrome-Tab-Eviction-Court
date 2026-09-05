@@ -9,5 +9,18 @@
   ],
   "background": {
     "service_worker": "background.js"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "courtroom.html",
+        "courtroom.css",
+        "courtroom.js",
+        "assets/*",
+        "Press_Start_2P/*",
+        "VT323/*"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

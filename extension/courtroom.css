@@ -760,6 +760,41 @@ html, body {
   100% { transform: scale(1.01); }
 }
 
+/* PDF ORDER DOWNLOAD BUTTON */
+#pdf-container {
+  display: none;
+  justify-content: center;
+  align-items: center;
+  padding: 4px 0;
+  margin: 6px 0 16px 0;
+  z-index: 10;
+}
+
+.pdf-order-btn {
+  background: linear-gradient(180deg, #d4af37 0%, #aa820a 100%);
+  color: #1a0f00;
+  border: 2px solid #ffe680;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  box-shadow: 0 0 12px rgba(240, 192, 64, 0.4), 0 2px 0 #5c4305;
+  transition: all 0.1s ease;
+}
+
+.pdf-order-btn:hover {
+  background: linear-gradient(180deg, #ffe680 0%, #d4af37 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 0 18px rgba(240, 192, 64, 0.7), 0 3px 0 #5c4305;
+  color: #000;
+}
+
 /* --- 11. RESPONSIVE SCALING & TWEAKS --- */
 @media (max-height: 700px) {
   #stage-area {

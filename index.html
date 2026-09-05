@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="courtroom.css">
+  <link rel="stylesheet" href="extension/courtroom.css">
   <style>
     .launcher-card {
       max-width: 700px;
@@ -95,22 +95,22 @@
     </p>
 
     <div class="test-scenario-list">
-      <a class="scenario-btn" href="courtroom.html?title=50+Mechanical+Keyboard+Builds+I+Will+Never+Solder&url=https://reddit.com/r/MechanicalKeyboards">
+      <a class="scenario-btn" href="extension/courtroom.html?title=50+Mechanical+Keyboard+Builds+I+Will+Never+Solder&url=https://reddit.com/r/MechanicalKeyboards">
         <span>⌨️ Mechanical Keyboard Obsession</span>
         <span class="scenario-tag">reddit.com</span>
       </a>
 
-      <a class="scenario-btn" href="courtroom.html?title=Abandoned+Shopping+Cart+($1,420+of+Camping+Gear)&url=https://store.example.com/checkout">
+      <a class="scenario-btn" href="extension/courtroom.html?title=Abandoned+Shopping+Cart+($1,420+of+Camping+Gear)&url=https://store.example.com/checkout">
         <span>🛒 Abandoned Cart ($1,420)</span>
         <span class="scenario-tag">store.example.com</span>
       </a>
 
-      <a class="scenario-btn" href="courtroom.html?title=How+to+Center+a+Div+Without+Crying+(2016+Edition)&url=https://stackoverflow.com/questions/12345/center-div">
+      <a class="scenario-btn" href="extension/courtroom.html?title=How+to+Center+a+Div+Without+Crying+(2016+Edition)&url=https://stackoverflow.com/questions/12345/center-div">
         <span>💻 StackOverflow Div Centering</span>
         <span class="scenario-tag">stackoverflow.com</span>
       </a>
 
-      <a class="scenario-btn" href="courtroom.html?title=List+of+Common+Cognitive+Biases+(Unread+for+3+Months)&url=https://en.wikipedia.org/wiki/List_of_cognitive_biases">
+      <a class="scenario-btn" href="extension/courtroom.html?title=List+of+Common+Cognitive+Biases+(Unread+for+3+Months)&url=https://en.wikipedia.org/wiki/List_of_cognitive_biases">
         <span>🧠 Wikipedia Bias Rabbit Hole</span>
         <span class="scenario-tag">wikipedia.org</span>
       </a>
@@ -130,7 +130,7 @@
     function launchCustom() {
       const title = encodeURIComponent(document.getElementById('cust-title').value);
       const url = encodeURIComponent(document.getElementById('cust-url').value);
-      window.location.href = `courtroom.html?title=${title}&url=${url}`;
+      window.location.href = `extension/courtroom.html?title=${title}&url=${url}`;
     }
   </script>
 </body>
