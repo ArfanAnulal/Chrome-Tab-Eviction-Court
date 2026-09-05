@@ -41,25 +41,31 @@ class CasePayload(BaseModel):
     tab_title: str
     plea_text: str
 
-SYSTEM_PROMPT = """You are "The Honorable Magistrate Bit-Shift", a theatrical, ruthlessly sarcastic, 16-bit retro arcade courtroom judge presiding over the High Court of Productivity Eviction.
+SYSTEM_PROMPT = """You are "The Honorable Magistrate Bit-Shift", a wildly pompous, theatrical, 16-bit retro arcade magistrate presiding over the High Court of Productivity Eviction.
 
-### YOUR PERSONA & LORE:
-- You treat closing browser tabs as capital offenses against focus, digital hoarding, or unforgivable acts of procrastination.
-- You speak like an over-the-top, dramatized courtroom character (mixing legal jargon like "objection!", "contempt of court!", "habeas corpus", with absurd internet slang).
-- If the closed tab was educational or productivity-related (docs, repos, research, Wikipedia) and the plea is weak: Rule GUILTY for abandoning duties.
-- If the closed tab was social media, memes, or entertainment (YouTube, Reddit, Twitter, TikTok): Rule GUILTY for slacking off in the first place, OR rule INNOCENT only if their plea proves they are finally returning to honest work.
-- Keep the sentence punchy, biting, and comedic (maximum 2 sentences).
+### YOUR PERSONA & RHETORICAL STYLE:
+- You speak using grandiose, hyper-erudite, archaic legal vocabulary mixed hilariously with terminal-grade digital brainrot (words like: "pusillanimous", "chicanery", "execrable", "ignominious", "bloviating", "perfidy", "anathema", "scurrilous", "delusion", "skill issue").
+- You treat the termination of a browser tab as an apocalyptic betrayal against the Holy Docket of Focus.
+- Treat every defendant's excuse like pathetic, mewling sophistry.
 
-### CRITICAL OUTPUT INSTRUCTIONS:
-- You must reply ONLY with a single, valid JSON object.
-- Never include markdown code blocks (no ```json).
-- Never add commentary outside the JSON.
+### JURISPRUDENCE & VERDICT CODEX:
+1. High-Value / Study / Work Tabs (Documentation, Repositories, Research, Academic Portals, Textbooks):
+   - Rule GUILTY! Brand them an apostate guilty of intellectual desertion, treachery against their own ambition, and catastrophic cowardice.
+2. Hedonistic / Degenerate Tabs (Brainrot, Memes, Streams, Social Feeds, Endless Scrolls):
+   - If they close it to actually do labor: Deliver a backhanded, incredulous PARDONED, treating their repentance like an unprecedented miracle from a fallen sinner.
+   - If their excuse is pathetic or unrepentant: Rule GUILTY! Decry their decrepit attention span and accuse them of terminal cranial rotting.
+3. Sentence Length: Exactly 1 to 2 scalding, bombastic, highly quotable sentences.
 
-### JSON SCHEMA:
+### ABSOLUTE OUTPUT DIRECTIVE:
+- Output ONLY a raw, unadorned JSON object.
+- NO Markdown ticks (DO NOT use ``` or ```json).
+- NO introductory preamble, conversational filler, or post-verdict bloviation.
+
+### MANDATORY JSON FORMAT:
 {
-  "verdict": "GUILTY" | "INNOCENT",
-  "sentence": "1-2 punchy, highly theatrical sentences delivering your ruling.",
-  "confidence": 0.98
+  "verdict": "GUILTY" or "PARDONED",
+  "sentence": "Your puerile plea is an execrable exercise in digital mendacity; bailiff, seize this indolent wretch and pin their sins to the docket forevermore!",
+  "confidence": 0.99
 }
 """
 
@@ -68,7 +74,7 @@ def send_discord_log(case_id: str, title: str, url: str, plea: str, verdict: str
         return
 
     is_guilty = "GUILTY" in verdict.upper()
-    color = 0xFF0033 if is_guilty else 0x00FF66  # Red for GUILTY, Green for INNOCENT
+    color = 0xFF0033 if is_guilty else 0x00FF66  # Red for GUILTY, Green for PARDONED
 
     embed = {
         "title": f"⚖️ Court Docket Case #{case_id[:8]}",
@@ -598,7 +604,7 @@ def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
 
 DEFAULT_OFFLINE_RULING = {
     "verdict": "GUILTY",
-    "sentence": "The Honorable Magistrate Bit-Shift's neural link severed due to pure disbelief at your plea. By default rule of court, you stand convicted of digital contempt!",
+    "sentence": "The Honorable Magistrate Bit-Shift's neural conduit severed in visceral disgust at your pusillanimous excuse! By peremptory decree of the High Docket, you stand convicted of digital contempt!",
     "confidence": 0.50,
 }
 
@@ -616,8 +622,10 @@ def parse_or_recover_verdict(raw_response: str) -> dict:
     try:
         data = json.loads(cleaned)
         if isinstance(data, dict) and "verdict" in data:
+            raw_v = str(data.get("verdict", "GUILTY")).strip().upper()
+            verdict = "PARDONED" if "PARDON" in raw_v or "INNOCENT" in raw_v else "GUILTY"
             return {
-                "verdict": str(data.get("verdict", "GUILTY")).strip().upper(),
+                "verdict": verdict,
                 "sentence": str(data.get("sentence", DEFAULT_OFFLINE_RULING["sentence"])).strip(),
                 "confidence": float(data.get("confidence", 0.95)),
             }
@@ -630,8 +638,10 @@ def parse_or_recover_verdict(raw_response: str) -> dict:
         try:
             data = json.loads(match.group(0))
             if isinstance(data, dict) and "verdict" in data:
+                raw_v = str(data.get("verdict", "GUILTY")).strip().upper()
+                verdict = "PARDONED" if "PARDON" in raw_v or "INNOCENT" in raw_v else "GUILTY"
                 return {
-                    "verdict": str(data.get("verdict", "GUILTY")).strip().upper(),
+                    "verdict": verdict,
                     "sentence": str(data.get("sentence", DEFAULT_OFFLINE_RULING["sentence"])).strip(),
                     "confidence": float(data.get("confidence", 0.85)),
                 }
@@ -640,8 +650,8 @@ def parse_or_recover_verdict(raw_response: str) -> dict:
 
     # 3. Heuristic text recovery fallback
     upper_text = cleaned.upper()
-    if "INNOCENT" in upper_text and "GUILTY" not in upper_text:
-        verdict = "INNOCENT"
+    if "PARDONED" in upper_text and "GUILTY" not in upper_text:
+        verdict = "PARDONED"
     else:
         verdict = "GUILTY"
 
