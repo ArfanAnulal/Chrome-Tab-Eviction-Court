@@ -1,203 +1,404 @@
 /**
  * ==========================================================================
  * CHROME TAB EVICTION COURT - COURTROOM ENGINE
- * Full Retro Arcade Courtroom: Audio Engine, Typewriter Dialogue,
- * Sprite State Machine, Speech Recognition & FastAPI AI Handshake
+ * Dev 2 Scope: Audio Engine, Typewriter Dialogue, Judge Sprite State Machine,
+ * Voice Dictation, 16-Bit Sound Synthesizer & Live Ollama/FastAPI AI Handshake
  * ==========================================================================
  */
 
 // --- 1. CONFIGURATION & BACKEND HANDSHAKE ---
 const CONFIG = {
-    // Live FastAPI backend with automatic graceful mock fallback if offline
-    USE_MOCK: false,
-    API_URL: "http://127.0.0.1:8000/judge",
-    MOCK_LATENCY_MS: 1800,
-    TYPEWRITER_SPEED_MS: 36,
-    TYPEWRITER_SOUND_INTERVAL: 3,
-    AUDIO_ENABLED: true,
-    PARDON_CLOSE_DELAY_MS: 5000
+  // Live FastAPI backend (http://127.0.0.1:8000/judge) with automatic graceful mock fallback if offline
+  USE_MOCK: false,
+  API_URL: "http://127.0.0.1:8000/judge",
+  MOCK_LATENCY_MS: 1800,
+  TYPEWRITER_SPEED_MS: 38,       // Natural retro dialogue cadence
+  TYPEWRITER_SOUND_INTERVAL: 3,  // Balanced mechanical clack rhythm
+  AUDIO_ENABLED: true,
+  VERDICT_CLOSE_DELAY_MS: 15000, // 15 seconds screen stay duration after final verdict
+  PARDON_CLOSE_DELAY_MS: 15000
 };
 
 // --- 2. ASSET DICTIONARY ---
 const ASSETS = {
-    sprites: {
-        normal_idle: 'assets/Judge_Normal_Idle.gif',
-        normal_talking: 'assets/Judge_Normal_Talking.gif',
-        thinking: 'assets/Judge_Thinking.gif',
-        surprised: 'assets/Judge_Surprised.gif',
-        stern_idle: 'assets/Judge_Stern_Idle.gif',
-        stern_talking: 'assets/Judge_Stern_Talking.gif',
-        gavel: 'assets/Judge_Gavel.gif',
-        nodding: 'assets/Judge_Nodding.gif'
-    },
-    audio: {
-        gavel: 'assets/gavel.mp3',
-        objection: 'assets/objection.mp3',
-        typewriter: 'assets/typewriter.mp3',
-        acquitted: 'assets/acquitted.mp3'
-    }
+  sprites: {
+    normal_idle: 'assets/Judge_Normal_Idle.gif',
+    normal_talking: 'assets/Judge_Normal_Talking.gif',
+    thinking: 'assets/Judge_Thinking.gif',
+    surprised: 'assets/Judge_Surprised.gif',
+    stern_idle: 'assets/Judge_Stern_Idle.gif',
+    stern_talking: 'assets/Judge_Stern_Talking.gif',
+    gavel: 'assets/Judge_Gavel.gif',
+    nodding: 'assets/Judge_Nodding.gif'
+  },
+  audio: {
+    gavel: 'assets/gavel.mp3',
+    objection: 'assets/objection.mp3',
+    typewriter: 'assets/typewriter.mp3',
+    acquitted: 'assets/acquitted.mp3'
+  }
 };
 
 // --- 3. RUNTIME STATE ---
 const STATE = {
-    accusedTitle: '',
-    accusedUrl: '',
-    caseId: '',
-    audioMuted: !CONFIG.AUDIO_ENABLED,
-    audioUnlocked: false,
-    isRecording: false,
-    isSubmitting: false,
-    currentPhase: 'ARRAIGNMENT', // 'ARRAIGNMENT' | 'DELIBERATING' | 'VERDICT'
-    currentJudgeSprite: 'normal_idle'
+  accusedTitle: '',
+  accusedUrl: '',
+  caseId: '',
+  audioMuted: !CONFIG.AUDIO_ENABLED,
+  audioUnlocked: false,
+  isRecording: false,
+  isSubmitting: false,
+  currentPhase: 'INIT', // 'INIT' | 'AWAITING_UNLOCK' | 'ARRAIGNMENT' | 'AWAITING_PLEA' | 'DELIBERATING' | 'VERDICT_GUILTY' | 'VERDICT_PARDONED'
+  currentJudgeSprite: 'normal_idle',
+  submittedPlea: ''
 };
 
-// --- 4. DOM ELEMENTS ---
-const DOM = {};
+// --- 4. DOM ELEMENTS CACHE ---
+const DOM = {
+  container: null,
+  accusedTitle: null,
+  accusedUrl: null,
+  caseId: null,
+  engineStatus: null,
+  audioBtn: null,
+  audioUnlockPrompt: null,
+  judgeSprite: null,
+  dialogueContainer: null,
+  dialogueSpeaker: null,
+  dialogueContent: null,
+  promptIndicator: null,
+  deliberationBanner: null,
+  pleaInput: null,
+  micBtn: null,
+  micBtnText: null,
+  micIcon: null,
+  micNotice: null,
+  recordingStatus: null,
+  charCounter: null,
+  submitBtn: null,
+  presetChips: [],
+  verdictStampContainer: null,
+  verdictStamp: null,
+  resurrectAlert: null,
+  pdfContainer: null,
+  pdfDownloadBtn: null,
+  adjournBanner: null,
+  adjournText: null,
+  gavelCutscene: null,
+  gavelCutsceneImg: null
+};
 
-function initDOM() {
-    DOM.container = document.getElementById('courtroom-container');
-    DOM.accusedTitle = document.getElementById('accused-title');
-    DOM.accusedUrl = document.getElementById('accused-url');
-    DOM.caseId = document.getElementById('case-id');
-    DOM.engineStatus = document.getElementById('engine-status');
-    DOM.audioBtn = document.getElementById('audio-btn');
-    DOM.audioUnlockPrompt = document.getElementById('audio-unlock-prompt');
-    DOM.judgeSprite = document.getElementById('judge-sprite');
-    DOM.dialogueContainer = document.getElementById('dialogue-container');
-    DOM.dialogueSpeaker = document.getElementById('dialogue-speaker');
-    DOM.dialogueContent = document.getElementById('dialogue-content') || document.getElementById('sentence');
-    DOM.sentence = DOM.dialogueContent;
-    DOM.promptIndicator = document.getElementById('prompt-indicator');
-    DOM.deliberationBanner = document.getElementById('deliberation-banner');
-    DOM.pleaInput = document.getElementById('plea-input');
-    DOM.micBtn = document.getElementById('mic-btn');
-    DOM.micBtnText = document.getElementById('mic-btn-text');
-    DOM.recordingStatus = document.getElementById('recording-status');
-    DOM.submitBtn = document.getElementById('submit-btn');
-    DOM.presetChips = document.querySelectorAll('.preset-chip');
-    DOM.verdictStampContainer = document.getElementById('verdict-stamp-container');
-    DOM.verdictStamp = document.getElementById('verdict-stamp') || document.getElementById('verdict');
-    DOM.verdict = DOM.verdictStamp;
-    DOM.resurrectAlert = document.getElementById('resurrect-alert');
-    DOM.pdfContainer = document.getElementById('pdf-container');
-    DOM.pdfDownloadBtn = document.getElementById('pdf-download-btn') || document.getElementById('pdf-btn');
-    DOM.pdfBtn = DOM.pdfDownloadBtn;
+function initDOMReferences() {
+  DOM.container = document.getElementById('courtroom-container');
+  DOM.accusedTitle = document.getElementById('accused-title');
+  DOM.accusedUrl = document.getElementById('accused-url');
+  DOM.caseId = document.getElementById('case-id');
+  DOM.engineStatus = document.getElementById('engine-status');
+  DOM.audioBtn = document.getElementById('audio-btn');
+  DOM.audioUnlockPrompt = document.getElementById('audio-unlock-prompt');
+  DOM.judgeSprite = document.getElementById('judge-sprite');
+  DOM.dialogueContainer = document.getElementById('dialogue-container');
+  DOM.dialogueSpeaker = document.getElementById('dialogue-speaker');
+  DOM.dialogueContent = document.getElementById('dialogue-content');
+  DOM.promptIndicator = document.getElementById('prompt-indicator');
+  DOM.deliberationBanner = document.getElementById('deliberation-banner');
+  DOM.pleaInput = document.getElementById('plea-input');
+  DOM.micBtn = document.getElementById('mic-btn');
+  DOM.micBtnText = document.getElementById('mic-btn-text');
+  DOM.micIcon = document.getElementById('mic-icon');
+  DOM.micNotice = document.getElementById('mic-notice');
+  DOM.recordingStatus = document.getElementById('recording-status');
+  DOM.charCounter = document.getElementById('char-counter');
+  DOM.submitBtn = document.getElementById('submit-btn');
+  DOM.presetChips = document.querySelectorAll('.preset-chip');
+  DOM.verdictStampContainer = document.getElementById('verdict-stamp-container');
+  DOM.verdictStamp = document.getElementById('verdict-stamp');
+  DOM.resurrectAlert = document.getElementById('resurrect-alert');
+  DOM.pdfContainer = document.getElementById('pdf-container');
+  DOM.pdfDownloadBtn = document.getElementById('pdf-download-btn');
+  DOM.adjournBanner = document.getElementById('adjourn-banner');
+  DOM.adjournText = document.getElementById('adjourn-text');
+  DOM.gavelCutscene = document.getElementById('gavel-cutscene');
+  DOM.gavelCutsceneImg = document.getElementById('gavel-cutscene-img');
 }
 
-// --- 5. AUDIO ENGINE (SOUND CONTROLLER) ---
+// --- 5. AUDIO ENGINE (SOUND CONTROLLER & 16-BIT SYNTHESIZER) ---
 class SoundController {
-    constructor() {
-        this.muted = STATE.audioMuted;
+  constructor() {
+    this.muted = STATE.audioMuted;
+    this.unlocked = false;
+    this.audioCtx = null;
+
+    // Standard audio objects
+    this.sounds = {
+      gavel: new Audio(ASSETS.audio.gavel),
+      objection: new Audio(ASSETS.audio.objection),
+      acquitted: new Audio(ASSETS.audio.acquitted)
+    };
+
+    // Continuous typewriter audio loop
+    this.typewriterAudio = new Audio(ASSETS.audio.typewriter);
+    this.typewriterAudio.loop = true;
+    this.typewriterAudio.volume = 0.55;
+
+    // Set volumes for dramatic balance
+    this.sounds.gavel.volume = 0.9;
+    this.sounds.objection.volume = 0.85;
+    this.sounds.acquitted.volume = 0.85;
+  }
+
+  /**
+   * Check if browser allows autoplay without initial interaction
+   */
+  checkAutoplay(onAllowed, onBlocked) {
+    const testAudio = new Audio(ASSETS.audio.objection);
+    testAudio.volume = 0.001;
+    const p = testAudio.play();
+
+    if (p !== undefined) {
+      p.then(() => {
+        this.unlocked = true;
+        STATE.audioUnlocked = true;
+        testAudio.pause();
+        testAudio.currentTime = 0;
+        if (DOM.audioUnlockPrompt) DOM.audioUnlockPrompt.style.display = 'none';
+        if (onAllowed) onAllowed();
+      }).catch(() => {
         this.unlocked = false;
+        STATE.audioUnlocked = false;
+        if (DOM.audioUnlockPrompt) DOM.audioUnlockPrompt.style.display = 'block';
+        if (onBlocked) onBlocked();
+      });
+    } else {
+      if (onBlocked) onBlocked();
+    }
+  }
 
-        // Standard audio objects
-        this.sounds = {
-            gavel: new Audio(ASSETS.audio.gavel),
-            objection: new Audio(ASSETS.audio.objection),
-            acquitted: new Audio(ASSETS.audio.acquitted)
-        };
+  /**
+   * Unlock audio engine upon first user interaction
+   */
+  unlock() {
+    if (this.unlocked) return;
+    this.unlocked = true;
+    STATE.audioUnlocked = true;
 
-        // Continuous typewriter audio loop
-        this.typewriterAudio = new Audio(ASSETS.audio.typewriter);
-        this.typewriterAudio.loop = true;
-        this.typewriterAudio.volume = 0.55;
-
-        // Set volumes for dramatic balance
-        this.sounds.gavel.volume = 0.9;
-        this.sounds.objection.volume = 0.85;
-        this.sounds.acquitted.volume = 0.85;
-
-        this.initAutoplay();
+    if (DOM.audioUnlockPrompt) {
+      DOM.audioUnlockPrompt.style.display = 'none';
     }
 
-    /**
-     * Check browser autoplay permissions and set up seamless unlock
-     */
-    initAutoplay() {
-        const testAudio = new Audio(ASSETS.audio.typewriter);
-        testAudio.volume = 0.01;
-        const playPromise = testAudio.play();
+    // Warm up Web Audio API context for zero-latency mechanical synth
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx && !this.audioCtx) {
+        this.audioCtx = new AudioCtx();
+      }
+      if (this.audioCtx && this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume();
+      }
+    } catch (e) {}
 
-        if (playPromise !== undefined) {
-            playPromise
-                .then(() => {
-                    this.unlocked = true;
-                    STATE.audioUnlocked = true;
-                    testAudio.pause();
-                    if (DOM.audioUnlockPrompt) DOM.audioUnlockPrompt.style.display = 'none';
-                })
-                .catch(() => {
-                    this.unlocked = false;
-                    STATE.audioUnlocked = false;
-                    if (DOM.audioUnlockPrompt) DOM.audioUnlockPrompt.style.display = 'block';
-                });
-        }
+    // Warm up all audio instances
+    Object.values(this.sounds).forEach(snd => {
+      snd.play().then(() => {
+        snd.pause();
+        snd.currentTime = 0;
+      }).catch(() => {});
+    });
 
-        // Gesture unlock on first user click or keypress
-        const unlockHandler = () => {
-            this.unlocked = true;
-            STATE.audioUnlocked = true;
-            if (DOM.audioUnlockPrompt) DOM.audioUnlockPrompt.style.display = 'none';
-
-            Object.values(this.sounds).forEach(s => s.load());
-            this.typewriterAudio.load();
-
-            window.removeEventListener('pointerdown', unlockHandler);
-            window.removeEventListener('keydown', unlockHandler);
-        };
-
-        window.addEventListener('pointerdown', unlockHandler, { passive: true });
-        window.addEventListener('keydown', unlockHandler, { passive: true });
+    // If typewriter is currently in typing mode, resume typing sound immediately
+    if (typewriter && typewriter.isTyping && !this.muted) {
+      this.startTypewriter();
     }
+  }
 
-    /**
-     * Starts the typewriter typing sound loop
-     */
-    startTypewriter() {
-        if (this.muted) return;
-        try {
-            this.typewriterAudio.currentTime = 0;
-            const p = this.typewriterAudio.play();
-            if (p !== undefined) p.catch(() => { });
-        } catch (e) { }
-    }
+  /**
+   * Synthesize a tactile 16-bit mechanical keyboard switch click (zero external assets needed)
+   */
+  playMechanicalClick() {
+    if (this.muted) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!this.audioCtx) this.audioCtx = new AudioCtx();
+      if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
 
-    /**
-     * Immediately stops the typewriter typing sound loop
-     */
-    stopTypewriter() {
-        try {
-            this.typewriterAudio.pause();
-            this.typewriterAudio.currentTime = 0;
-        } catch (e) { }
-    }
+      const t = this.audioCtx.currentTime;
 
-    /**
-     * Play a named courtroom sound effect
-     */
-    play(name) {
-        if (this.muted) return;
-        const snd = this.sounds[name];
-        if (snd) {
-            snd.currentTime = 0;
-            const p = snd.play();
-            if (p !== undefined) {
-                p.catch(err => console.warn(`[Audio] Blocked on play(${name}):`, err));
-            }
-        }
-    }
+      // 1. High crisp tactile click impulse (plastic key switch snap)
+      const osc = this.audioCtx.createOscillator();
+      const gain = this.audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(1600, t);
+      osc.frequency.exponentialRampToValueAtTime(320, t + 0.032);
 
-    /**
-     * Toggle mute state
-     */
-    toggleMute() {
-        this.muted = !this.muted;
-        STATE.audioMuted = this.muted;
-        if (this.muted) {
-            this.stopTypewriter();
-        }
-        return this.muted;
+      gain.gain.setValueAtTime(0.45, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.032);
+
+      osc.connect(gain);
+      gain.connect(this.audioCtx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.034);
+
+      // 2. Low mechanical bottom-out thud (switch housing body resonance)
+      const thudOsc = this.audioCtx.createOscillator();
+      const thudGain = this.audioCtx.createGain();
+      thudOsc.type = 'sine';
+      thudOsc.frequency.setValueAtTime(280, t);
+      thudOsc.frequency.exponentialRampToValueAtTime(70, t + 0.045);
+
+      thudGain.gain.setValueAtTime(0.35, t);
+      thudGain.gain.exponentialRampToValueAtTime(0.001, t + 0.045);
+
+      thudOsc.connect(thudGain);
+      thudGain.connect(this.audioCtx.destination);
+
+      thudOsc.start(t);
+      thudOsc.stop(t + 0.047);
+    } catch (e) {
+      console.warn("[Audio] Mechanical click synth error:", e);
     }
+  }
+
+  /**
+   * Synthesize an 8-bit digital chirp for microphone toggle (recording on/off)
+   */
+  playMicToggle(isStarting) {
+    if (this.muted) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!this.audioCtx) this.audioCtx = new AudioCtx();
+      if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+
+      const t = this.audioCtx.currentTime;
+      const osc = this.audioCtx.createOscillator();
+      const gain = this.audioCtx.createGain();
+
+      osc.type = 'sine';
+      if (isStarting) {
+        // High rising chirp (520Hz -> 880Hz) - mic active
+        osc.frequency.setValueAtTime(520, t);
+        osc.frequency.setValueAtTime(880, t + 0.04);
+      } else {
+        // Descending chirp (880Hz -> 440Hz) - mic disengaged
+        osc.frequency.setValueAtTime(880, t);
+        osc.frequency.setValueAtTime(440, t + 0.04);
+      }
+
+      gain.gain.setValueAtTime(0.35, t);
+      gain.gain.setValueAtTime(0.35, t + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+
+      osc.connect(gain);
+      gain.connect(this.audioCtx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.1);
+    } catch (e) {
+      console.warn("[Audio] Mic synth error:", e);
+    }
+  }
+
+  /**
+   * Synthesize a heavy arcade button slam when submitting a plea
+   */
+  playSubmitClick() {
+    if (this.muted) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!this.audioCtx) this.audioCtx = new AudioCtx();
+      if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+
+      const t = this.audioCtx.currentTime;
+
+      // Heavy tactile arcade plunger snap
+      const osc = this.audioCtx.createOscillator();
+      const gain = this.audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(900, t);
+      osc.frequency.exponentialRampToValueAtTime(140, t + 0.05);
+
+      gain.gain.setValueAtTime(0.5, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+
+      osc.connect(gain);
+      gain.connect(this.audioCtx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.055);
+
+      // Low mechanical thud
+      const thud = this.audioCtx.createOscillator();
+      const thudGain = this.audioCtx.createGain();
+      thud.type = 'sine';
+      thud.frequency.setValueAtTime(200, t);
+      thud.frequency.exponentialRampToValueAtTime(50, t + 0.07);
+
+      thudGain.gain.setValueAtTime(0.4, t);
+      thudGain.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+
+      thud.connect(thudGain);
+      thudGain.connect(this.audioCtx.destination);
+
+      thud.start(t);
+      thud.stop(t + 0.075);
+    } catch (e) {
+      console.warn("[Audio] Submit synth error:", e);
+    }
+  }
+
+  /**
+   * Starts the typewriter audio loop
+   */
+  startTypewriter() {
+    if (this.muted) return;
+    try {
+      this.typewriterAudio.currentTime = 0;
+      const p = this.typewriterAudio.play();
+      if (p !== undefined) p.catch(() => {});
+    } catch (e) {}
+  }
+
+  /**
+   * Immediately stops the typewriter audio loop
+   */
+  stopTypewriter() {
+    try {
+      this.typewriterAudio.pause();
+      this.typewriterAudio.currentTime = 0;
+    } catch (e) {}
+  }
+
+  /**
+   * Play a named courtroom sound effect
+   */
+  play(name) {
+    if (this.muted) return;
+    const snd = this.sounds[name];
+    if (snd) {
+      snd.currentTime = 0;
+      const p = snd.play();
+      if (p !== undefined) {
+        p.catch(err => console.warn(`[Audio] Play blocked for ${name}:`, err));
+      }
+    }
+  }
+
+  /**
+   * Toggle mute state
+   */
+  toggleMute() {
+    this.muted = !this.muted;
+    STATE.audioMuted = this.muted;
+    if (this.muted) {
+      this.stopTypewriter();
+    } else {
+      this.play('objection');
+    }
+    return this.muted;
+  }
 }
 
 // Global Sound Controller Instance
@@ -205,564 +406,912 @@ const sound = new SoundController();
 
 // --- 6. TYPEWRITER DIALOGUE ENGINE ---
 class TypewriterEngine {
-    constructor(soundController) {
-        this.soundController = soundController;
-        this.isTyping = false;
-        this.timeoutId = null;
-        this.fullText = '';
-        this.charIndex = 0;
-        this.charSoundCounter = 0;
-        this.onCompleteCallback = null;
-        this.speed = CONFIG.TYPEWRITER_SPEED_MS || 36;
-        this.soundInterval = CONFIG.TYPEWRITER_SOUND_INTERVAL || 3;
+  constructor(soundController) {
+    this.soundController = soundController;
+    this.isTyping = false;
+    this.timeoutId = null;
+    this.fullText = '';
+    this.charIndex = 0;
+    this.onCompleteCallback = null;
+    this.speed = CONFIG.TYPEWRITER_SPEED_MS;
+  }
+
+  type(text, options = {}) {
+    this.stop();
+
+    this.fullText = text;
+    this.charIndex = 0;
+    this.isTyping = true;
+    this.speed = options.speed || CONFIG.TYPEWRITER_SPEED_MS;
+    this.onStart = options.onStart || null;
+    this.onComplete = options.onComplete || null;
+
+    if (DOM.dialogueContainer) {
+      DOM.dialogueContainer.classList.add('is-typing');
+    }
+    if (DOM.promptIndicator) {
+      DOM.promptIndicator.style.display = 'none';
+    }
+    if (DOM.dialogueContent) {
+      DOM.dialogueContent.textContent = '';
     }
 
-    /**
-     * Type out text character-by-character into the dialogue box
-     * @param {string} text 
-     * @param {object} options 
-     * @returns {Promise<void>}
-     */
-    type(text, options = {}) {
-        this.stop();
+    if (this.onStart) this.onStart();
+    this.soundController.startTypewriter();
 
-        this.fullText = text;
-        this.charIndex = 0;
-        this.charSoundCounter = 0;
-        this.isTyping = true;
-        this.speed = options.speed || CONFIG.TYPEWRITER_SPEED_MS || 36;
-        this.soundInterval = options.soundInterval || CONFIG.TYPEWRITER_SOUND_INTERVAL || 3;
-        this.onStart = options.onStart || null;
-        this.onComplete = options.onComplete || null;
-
+    return new Promise((resolve) => {
+      this.onCompleteCallback = () => {
+        this.soundController.stopTypewriter();
         if (DOM.dialogueContainer) {
-            DOM.dialogueContainer.classList.add('is-typing');
+          DOM.dialogueContainer.classList.remove('is-typing');
         }
         if (DOM.promptIndicator) {
-            DOM.promptIndicator.style.display = 'none';
+          DOM.promptIndicator.style.display = 'block';
         }
-        if (DOM.dialogueContent) {
-            DOM.dialogueContent.textContent = '';
+        if (this.onComplete) this.onComplete();
+        resolve();
+      };
+
+      this.step();
+    });
+  }
+
+  step() {
+    if (!this.isTyping) return;
+
+    if (this.charIndex < this.fullText.length) {
+      const char = this.fullText.charAt(this.charIndex);
+      this.charIndex++;
+
+      if (DOM.dialogueContent) {
+        DOM.dialogueContent.textContent = this.fullText.substring(0, this.charIndex);
+      }
+
+      // Natural pauses at punctuation
+      let delay = this.speed;
+      if (char === '.' || char === '!' || char === '?') {
+        delay = this.speed * 4.2;
+        this.soundController.typewriterAudio.pause();
+      } else if (char === ',' || char === ';' || char === ':') {
+        delay = this.speed * 2.0;
+      } else {
+        if (!this.soundController.muted && this.soundController.typewriterAudio.paused) {
+          this.soundController.typewriterAudio.play().catch(() => {});
         }
+      }
 
-        if (this.onStart) this.onStart();
-
-        // Start authentic typewriter audio track
-        this.soundController.startTypewriter();
-
-        return new Promise((resolve) => {
-            this.onCompleteCallback = () => {
-                this.soundController.stopTypewriter();
-                if (DOM.dialogueContainer) {
-                    DOM.dialogueContainer.classList.remove('is-typing');
-                }
-                if (DOM.promptIndicator) {
-                    DOM.promptIndicator.style.display = 'block';
-                }
-                if (this.onComplete) this.onComplete();
-                resolve();
-            };
-
-            this.step();
-        });
+      this.timeoutId = setTimeout(() => this.step(), delay);
+    } else {
+      this.finish();
     }
+  }
 
-    /**
-     * Process a single character step
-     */
-    step() {
-        if (!this.isTyping) return;
-
-        if (this.charIndex < this.fullText.length) {
-            const char = this.fullText.charAt(this.charIndex);
-            this.charIndex++;
-
-            if (DOM.dialogueContent) {
-                DOM.dialogueContent.textContent = this.fullText.substring(0, this.charIndex);
-            }
-
-            // Natural pauses at punctuation for cadence
-            let delay = this.speed;
-            if (char === '.' || char === '!' || char === '?') {
-                delay = this.speed * 4.2;
-                this.soundController.typewriterAudio.pause();
-            } else if (char === ',' || char === ';' || char === ':') {
-                delay = this.speed * 2.2;
-            } else {
-                if (!this.soundController.muted && this.soundController.typewriterAudio.paused) {
-                    this.soundController.typewriterAudio.play().catch(() => { });
-                }
-            }
-
-            this.timeoutId = setTimeout(() => this.step(), delay);
-        } else {
-            this.finish();
-        }
+  skip() {
+    if (!this.isTyping) return;
+    if (this.timeoutId) clearTimeout(this.timeoutId);
+    this.soundController.stopTypewriter();
+    if (DOM.dialogueContent) {
+      DOM.dialogueContent.textContent = this.fullText;
     }
+    this.finish();
+  }
 
-    /**
-     * Fast-forward / skip dialogue to the end immediately
-     */
-    skip() {
-        if (!this.isTyping) return;
-        if (this.timeoutId) clearTimeout(this.timeoutId);
-        this.soundController.stopTypewriter();
-        if (DOM.dialogueContent) {
-            DOM.dialogueContent.textContent = this.fullText;
-        }
-        this.finish();
+  finish() {
+    this.isTyping = false;
+    if (this.timeoutId) clearTimeout(this.timeoutId);
+    this.soundController.stopTypewriter();
+    if (this.onCompleteCallback) {
+      const cb = this.onCompleteCallback;
+      this.onCompleteCallback = null;
+      cb();
     }
+  }
 
-    /**
-     * Finalize the typing process
-     */
-    finish() {
-        this.isTyping = false;
-        if (this.timeoutId) clearTimeout(this.timeoutId);
-        this.soundController.stopTypewriter();
-        if (this.onCompleteCallback) {
-            const cb = this.onCompleteCallback;
-            this.onCompleteCallback = null;
-            cb();
-        }
+  stop() {
+    this.isTyping = false;
+    if (this.timeoutId) clearTimeout(this.timeoutId);
+    this.soundController.stopTypewriter();
+    this.onCompleteCallback = null;
+    if (DOM.dialogueContainer) {
+      DOM.dialogueContainer.classList.remove('is-typing');
     }
-
-    /**
-     * Immediately halt any running typewriter sequence
-     */
-    stop() {
-        this.isTyping = false;
-        if (this.timeoutId) clearTimeout(this.timeoutId);
-        this.soundController.stopTypewriter();
-        this.onCompleteCallback = null;
-        if (DOM.dialogueContainer) {
-            DOM.dialogueContainer.classList.remove('is-typing');
-        }
-    }
+  }
 }
 
 // Global Typewriter Engine Instance
 const typewriter = new TypewriterEngine(sound);
 
-// --- 7. SPRITE STATE CONTROLLER ---
-function setJudgeSprite(stateName) {
-    const spriteSrc = ASSETS.sprites[stateName];
-    if (!spriteSrc || !DOM.judgeSprite) return;
+// --- 7. VOICE RECOGNITION CONTROLLER ---
+class VoiceController {
+  constructor() {
+    this.isRecording = false;
+    this.recognition = null;
+    this.baseText = '';
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    this.supported = !!SpeechRec;
 
-    STATE.currentJudgeSprite = stateName;
-    DOM.judgeSprite.src = spriteSrc;
-
-    // Toggle gavel styling offset if state is gavel
-    if (stateName === 'gavel') {
-        DOM.judgeSprite.classList.add('gavel-active');
-    } else {
-        DOM.judgeSprite.classList.remove('gavel-active');
+    if (this.supported) {
+      try {
+        this.recognition = new SpeechRec();
+        this.recognition.continuous = true;
+        this.recognition.interimResults = true;
+        this.recognition.lang = 'en-US';
+        this.setupListeners();
+      } catch (e) {
+        console.warn("🎙️ [VOICE] Failed to initialize SpeechRecognition:", e);
+        this.supported = false;
+      }
     }
-}
+  }
 
-/**
- * Preload all judge animation frames into browser cache
- */
-function preloadSprites() {
-    Object.values(ASSETS.sprites).forEach(src => {
-        const img = new Image();
-        img.src = src;
-    });
-}
+  setupListeners() {
+    this.recognition.onresult = (event) => {
+      let interim = '';
+      let final = '';
 
-// --- 8. SPEECH RECOGNITION (VOICE PLEAS) ---
-function initSpeechRecognition() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-        if (DOM.micBtn) {
-            DOM.micBtn.title = "Voice recognition not supported in this browser.";
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          final += event.results[i][0].transcript;
+        } else {
+          interim += event.results[i][0].transcript;
         }
-        return;
-    }
+      }
 
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
-
-    recognition.onstart = () => {
-        STATE.isRecording = true;
-        if (DOM.micBtn) DOM.micBtn.classList.add('recording');
-        if (DOM.micBtnText) DOM.micBtnText.textContent = "LISTENING...";
-        if (DOM.recordingStatus) DOM.recordingStatus.style.display = 'flex';
+      const spoken = (final + ' ' + interim).trim();
+      if (DOM.pleaInput && spoken) {
+        const combined = this.baseText ? `${this.baseText} ${spoken}` : spoken;
+        DOM.pleaInput.value = combined.slice(0, 280);
+        updateCharCounter();
+      }
     };
 
-    recognition.onresult = (event) => {
-        let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-            transcript += event.results[i][0].transcript;
-        }
-        if (DOM.pleaInput && transcript) {
-            DOM.pleaInput.value = transcript;
-        }
+    this.recognition.onerror = (event) => {
+      console.warn("🎙️ [VOICE] Recognition error:", event.error);
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        this.showNotice("⚠️ MIC PERMISSION DENIED — PLEASE TYPE YOUR PLEA BELOW");
+      } else if (event.error === 'no-speech') {
+        // Silence timeout
+      } else {
+        this.showNotice(`⚠️ VOICE NOTICE: ${event.error.toUpperCase()}`);
+      }
+      this.stop(true);
     };
 
-    recognition.onerror = (err) => {
-        console.warn("[Speech Recognition Error]:", err);
-        stopRecording();
+    this.recognition.onend = () => {
+      if (this.isRecording) {
+        this.stop();
+      }
     };
+  }
 
-    recognition.onend = () => {
-        stopRecording();
-    };
-
-    function stopRecording() {
-        STATE.isRecording = false;
-        if (DOM.micBtn) DOM.micBtn.classList.remove('recording');
-        if (DOM.micBtnText) DOM.micBtnText.textContent = "VOICE PLEA";
-        if (DOM.recordingStatus) DOM.recordingStatus.style.display = 'none';
+  start() {
+    if (!this.supported) {
+      this.showNotice("⚠️ SPEECH RECOGNITION NOT SUPPORTED (TYPE DEFENSE BELOW)");
+      return;
     }
 
-    if (DOM.micBtn) {
-        DOM.micBtn.addEventListener('click', () => {
-            if (STATE.isRecording) {
-                recognition.stop();
-            } else {
-                try {
-                    recognition.start();
-                } catch (e) {
-                    console.warn("[Speech] Recognition start error:", e);
-                }
-            }
-        });
-    }
-}
+    if (this.isRecording) return;
+    this.hideNotice();
 
-// --- 9. SUBMIT PLEA & VERDICT HANDSHAKE ---
-async function submitPlea() {
-    if (STATE.isSubmitting || STATE.currentPhase === 'DELIBERATING') return;
+    this.baseText = DOM.pleaInput ? DOM.pleaInput.value.trim() : '';
+    this.isRecording = true;
+    STATE.isRecording = true;
 
-    const plea = (DOM.pleaInput ? DOM.pleaInput.value : "").trim() || "No statement entered. I throw myself upon the mercy of the Court.";
-
-    STATE.isSubmitting = true;
-    STATE.currentPhase = 'DELIBERATING';
-
-    // Disable controls while deliberating
-    if (DOM.submitBtn) DOM.submitBtn.disabled = true;
-    if (DOM.micBtn) DOM.micBtn.disabled = true;
-    if (DOM.pleaInput) DOM.pleaInput.disabled = true;
-
-    // Show deliberation banner and switch to thinking judge
-    if (DOM.deliberationBanner) DOM.deliberationBanner.style.display = 'block';
-    setJudgeSprite('thinking');
-
-    // Type initial deliberation text
-    typewriter.type("The Court is in recess. The Honorable Magistrate Bit-Shift is reviewing your plea and conferring with the local neural bailiff...", {
-        speed: 30
-    });
-
-    let verdictData = null;
-
-    // 1. Attempt Live FastAPI Backend
-    if (!CONFIG.USE_MOCK) {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 12000);
-
-            const res = await fetch(CONFIG.API_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    tab_url: STATE.accusedUrl,
-                    tab_title: STATE.accusedTitle,
-                    plea_text: plea
-                }),
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-
-            if (res.ok) {
-                verdictData = await res.json();
-                if (typeof verdictData === "string") {
-                    verdictData = JSON.parse(verdictData);
-                }
-            } else {
-                console.warn("[Courtroom API] Server returned non-200 status:", res.status);
-            }
-        } catch (err) {
-            console.warn("[Courtroom API] Connection failed, activating internal mock fallback:", err);
-        }
+    try {
+      this.recognition.start();
+    } catch (err) {
+      console.warn("🎙️ [VOICE] Start exception:", err);
+      this.stop(true);
+      return;
     }
 
-    // 2. Graceful Mock Fallback (if backend is offline or mock enabled)
-    if (!verdictData) {
-        await new Promise(r => setTimeout(r, CONFIG.MOCK_LATENCY_MS));
-        const isGuilty = Math.random() > 0.35;
-        const fallbackCaseId = `mock-${Math.random().toString(36).substring(2, 9)}`;
-        verdictData = {
-            verdict: isGuilty ? "GUILTY" : "INNOCENT",
-            sentence: isGuilty
-                ? "Your transparent excuses crumble before this bench! The Court finds you guilty of terminal digital hoarding."
-                : "The Court acknowledges your legitimate focus efforts. Case dismissed, go forth and be productive!",
-            confidence: 0.88,
-            case_id: fallbackCaseId,
-            pdf_download_url: `http://127.0.0.1:8000/order/${fallbackCaseId}.pdf`
-        };
+    sound.playMicToggle(true);
+
+    // Update UI states
+    if (DOM.micBtn) DOM.micBtn.classList.add('recording');
+    if (DOM.micBtnText) DOM.micBtnText.textContent = "STOP [LISTENING]";
+    if (DOM.micIcon) DOM.micIcon.textContent = "⏹️";
+    if (DOM.recordingStatus) DOM.recordingStatus.style.display = 'flex';
+  }
+
+  stop(silent = false) {
+    if (!this.isRecording) return;
+    this.isRecording = false;
+    STATE.isRecording = false;
+
+    if (!silent) {
+      sound.playMicToggle(false);
     }
 
-    // 3. Render Judicial Ruling
-    handleVerdict(verdictData);
-}
-
-/**
- * Handle and animate the formal judicial verdict
- */
-function handleVerdict(data) {
-    STATE.currentPhase = 'VERDICT';
-    if (DOM.deliberationBanner) DOM.deliberationBanner.style.display = 'none';
-
-    const verdict = (data.verdict || "GUILTY").toUpperCase();
-    const isGuilty = verdict.includes("GUILTY");
-    const sentence = data.sentence || "No statement rendered from the bench.";
-
-    // Display Verdict Stamp
-    if (DOM.verdictStampContainer && DOM.verdictStamp) {
-        DOM.verdictStampContainer.style.display = 'flex';
-        DOM.verdictStamp.className = `verdict-stamp ${isGuilty ? 'guilty' : 'pardoned'} stamp-slam`;
-        DOM.verdictStamp.textContent = isGuilty ? "GUILTY" : "PARDONED";
+    if (this.recognition) {
+      try {
+        this.recognition.stop();
+      } catch (e) {}
     }
 
-    if (isGuilty) {
-        // GUILTY FLOW:
-        sound.play('gavel');
-        setJudgeSprite('gavel');
+    // Reset UI states
+    if (DOM.micBtn) DOM.micBtn.classList.remove('recording');
+    if (DOM.micBtnText) DOM.micBtnText.textContent = "VOICE PLEA";
+    if (DOM.micIcon) DOM.micIcon.textContent = "🎙️";
+    if (DOM.recordingStatus) DOM.recordingStatus.style.display = 'none';
 
-        setTimeout(() => {
-            setJudgeSprite('stern_talking');
-        }, 850);
-
-        // Show pinned tab penalty alert
-        if (DOM.resurrectAlert) {
-            DOM.resurrectAlert.style.display = 'block';
-        }
-
-        // Trigger Chrome Extension tab resurrection in background without stealing court focus
-        if (window.chrome && chrome.runtime && chrome.runtime.sendMessage) {
-            setTimeout(() => {
-                try {
-                    if (chrome.tabs && chrome.tabs.getCurrent) {
-                        chrome.tabs.getCurrent((currentTab) => {
-                            const tabId = currentTab ? currentTab.id : null;
-                            const winId = currentTab ? currentTab.windowId : null;
-
-                            chrome.runtime.sendMessage({
-                                action: "REVIVE_TAB",
-                                url: STATE.accusedUrl,
-                                courtTabId: tabId,
-                                courtWindowId: winId
-                            }, (response) => {
-                                if (chrome.runtime.lastError) {
-                                    console.warn("[Tab Courtroom] Tab revival message error:", chrome.runtime.lastError.message);
-                                } else {
-                                    console.log("[Tab Courtroom] Tab revived in background:", response);
-                                }
-                                window.focus();
-                                if (winId && chrome.windows) {
-                                    chrome.windows.update(winId, { focused: true }).catch(() => { });
-                                }
-                            });
-                        });
-                    } else {
-                        chrome.runtime.sendMessage({ action: "REVIVE_TAB", url: STATE.accusedUrl });
-                    }
-                } catch (e) {
-                    console.warn("[Tab Courtroom] Tab revival dispatch error:", e);
-                }
-            }, 500);
-        }
-
-        // Type dramatic verdict speech
-        const speech = `VERDICT: GUILTY AS CHARGED!\n\n"${sentence}"`;
-        typewriter.type(speech, {
-            speed: CONFIG.TYPEWRITER_SPEED_MS,
-            onComplete: () => {
-                setJudgeSprite('stern_idle');
-            }
-        });
-
-    } else {
-        // PARDONED FLOW:
-        sound.play('acquitted');
-        setJudgeSprite('nodding');
-
-        setTimeout(() => {
-            setJudgeSprite('normal_talking');
-        }, 950);
-
-        if (DOM.resurrectAlert) {
-            DOM.resurrectAlert.style.display = 'none';
-        }
-
-        // Type forgiving verdict speech
-        const speech = `VERDICT: PARDONED / CLEARED!\n\n"${sentence}"`;
-        typewriter.type(speech, {
-            speed: CONFIG.TYPEWRITER_SPEED_MS,
-            onComplete: () => {
-                setJudgeSprite('normal_idle');
-            }
-        });
-    }
-
-    // Display PDF Court Order Download Button
-    if (data.pdf_download_url && DOM.pdfContainer && DOM.pdfDownloadBtn) {
-        DOM.pdfDownloadBtn.href = data.pdf_download_url;
-        DOM.pdfContainer.style.display = 'flex';
-    }
-
-    // Reset controls
-    if (DOM.submitBtn) {
-        const freshBtn = DOM.submitBtn.cloneNode(true);
-        DOM.submitBtn.parentNode.replaceChild(freshBtn, DOM.submitBtn);
-        DOM.submitBtn = freshBtn;
-        DOM.submitBtn.disabled = false;
-        DOM.submitBtn.innerHTML = '<span>⚖️</span><span>NEW TRIAL</span>';
-        DOM.submitBtn.addEventListener('click', () => window.location.reload(), { once: true });
-    }
-}
-
-// --- 10. INITIALIZATION & ARRAIGNMENT SPEECH ---
-function initCourtroom() {
-    initDOM();
-
-    // Parse query parameters passed by Chrome tab interceptor
-    const urlParams = new URLSearchParams(window.location.search);
-    STATE.accusedTitle = urlParams.get('title') || "Wikipedia: List of Unfinished Projects";
-    STATE.accusedUrl = urlParams.get('url') || "https://en.wikipedia.org/wiki/List_of_unsolved_problems";
-
-    // Generate randomized retro case ID
-    const randomNum = Math.floor(1000 + Math.random() * 9000);
-    STATE.caseId = `CASE #TAB-${randomNum}`;
-
-    // Update HUD
-    if (DOM.accusedTitle) DOM.accusedTitle.textContent = STATE.accusedTitle;
-    if (DOM.accusedUrl) DOM.accusedUrl.textContent = STATE.accusedUrl;
-    if (DOM.caseId) DOM.caseId.textContent = STATE.caseId;
-
-    if (DOM.engineStatus) {
-        DOM.engineStatus.textContent = CONFIG.USE_MOCK ? "MOCK GPU JURY" : "LOCAL OLLAMA (LIVE)";
-        if (!CONFIG.USE_MOCK) DOM.engineStatus.classList.remove('mock-active');
-    }
-
-    // Preload Sprites
-    preloadSprites();
-
-    // Bind Quick Plea Chips
-    DOM.presetChips.forEach(chip => {
-        chip.addEventListener('click', () => {
-            const plea = chip.getAttribute('data-plea');
-            if (DOM.pleaInput && plea) {
-                DOM.pleaInput.value = plea;
-                DOM.pleaInput.focus();
-            }
-        });
-    });
-
-    // Bind Audio Toggle Button
-    if (DOM.audioBtn) {
-        DOM.audioBtn.addEventListener('click', () => {
-            const isMuted = sound.toggleMute();
-            DOM.audioBtn.textContent = isMuted ? "🔇 SFX: OFF" : "🔊 SFX: ON";
-            DOM.audioBtn.style.color = isMuted ? "#888" : "var(--gold-primary)";
-        });
-    }
-
-    // Bind Dialogue Skip (Click dialogue box or press Space)
-    if (DOM.dialogueContainer) {
-        DOM.dialogueContainer.addEventListener('click', () => {
-            if (typewriter.isTyping) {
-                typewriter.skip();
-            }
-        });
-    }
-
-    window.addEventListener('keydown', (e) => {
-        if (e.code === 'Space' && document.activeElement !== DOM.pleaInput) {
-            if (typewriter.isTyping) {
-                e.preventDefault();
-                typewriter.skip();
-            }
-        }
-    });
-
-    // Bind Audio Unlock Banner Click
-    if (DOM.audioUnlockPrompt) {
-        DOM.audioUnlockPrompt.addEventListener('click', () => {
-            sound.unlocked = true;
-            STATE.audioUnlocked = true;
-            DOM.audioUnlockPrompt.style.display = 'none';
-            startArraignment();
-        });
-    }
-
-    // Bind Submit Plea Button
-    if (DOM.submitBtn) {
-        DOM.submitBtn.addEventListener('click', submitPlea);
-    }
-
-    // Allow Ctrl+Enter to submit plea inside textarea
     if (DOM.pleaInput) {
-        DOM.pleaInput.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                e.preventDefault();
-                submitPlea();
-            }
-        });
+      DOM.pleaInput.focus();
     }
+  }
 
-    // Initialize Speech Recognition
-    initSpeechRecognition();
+  toggle() {
+    if (this.isRecording) {
+      this.stop();
+    } else {
+      this.start();
+    }
+  }
 
-    console.log("⚖️ [TAB COURT] Courtroom Engine Online.", {
-        case: STATE.caseId,
-        title: STATE.accusedTitle,
-        url: STATE.accusedUrl,
-        mock: CONFIG.USE_MOCK
-    });
+  showNotice(msg) {
+    if (DOM.micNotice) {
+      DOM.micNotice.textContent = msg;
+      DOM.micNotice.classList.add('active');
+      setTimeout(() => {
+        this.hideNotice();
+      }, 5000);
+    }
+  }
 
-    // --- START INITIAL ARRAIGNMENT SPEECH ---
-    startArraignment();
+  hideNotice() {
+    if (DOM.micNotice) {
+      DOM.micNotice.classList.remove('active');
+    }
+  }
+}
+
+// Global Voice Controller Instance
+const voice = new VoiceController();
+
+/**
+ * Updates the live character counter badge in the dock header
+ */
+function updateCharCounter() {
+  if (!DOM.pleaInput || !DOM.charCounter) return;
+  const len = DOM.pleaInput.value.length;
+  DOM.charCounter.textContent = `${len}/280`;
+  if (len >= 280) {
+    DOM.charCounter.className = 'char-counter limit-reached';
+  } else if (len >= 240) {
+    DOM.charCounter.className = 'char-counter limit-near';
+  } else {
+    DOM.charCounter.className = 'char-counter';
+  }
 }
 
 /**
- * Executes the initial courtroom charge reading
+ * Plays a tactile mechanical keyboard switch click on chip interaction
  */
-function startArraignment() {
-    STATE.currentPhase = 'ARRAIGNMENT';
+function playChipClick() {
+  sound.playMechanicalClick();
+}
+
+// --- 8. SPRITE STATE CONTROLLER ---
+function setJudgeSprite(stateName) {
+  const spriteSrc = ASSETS.sprites[stateName];
+  if (!spriteSrc || !DOM.judgeSprite) return;
+
+  STATE.currentJudgeSprite = stateName;
+  DOM.judgeSprite.src = spriteSrc;
+
+  if (stateName === 'gavel') {
+    DOM.judgeSprite.classList.add('gavel-active');
+  } else {
+    DOM.judgeSprite.classList.remove('gavel-active');
+  }
+}
+
+function preloadSprites() {
+  Object.values(ASSETS.sprites).forEach(src => {
+    const img = new Image();
+    img.src = src;
+  });
+}
+
+// --- 8.5 VERDICT 15-SECOND STAY & ADJOURN CONTROLLER ---
+let dismissCountdownTimer = null;
+
+function cancelScreenDismissCountdown() {
+  if (dismissCountdownTimer) {
+    clearInterval(dismissCountdownTimer);
+    dismissCountdownTimer = null;
+  }
+  if (DOM.adjournBanner) {
+    DOM.adjournBanner.classList.remove('active');
+    DOM.adjournBanner.classList.remove('adjourn-critical');
+  }
+  if (DOM.promptIndicator) {
+    DOM.promptIndicator.classList.remove('adjourn-countdown');
+  }
+}
+
+function startScreenDismissCountdown(delayMs = 15000, verdictType = 'PARDONED') {
+  cancelScreenDismissCountdown();
+
+  const isGuilty = verdictType === 'GUILTY';
+  const labelPrefix = isGuilty ? "COURT ADJOURNS IN" : "TAB CLOSING IN";
+
+  if (DOM.adjournBanner) {
+    DOM.adjournBanner.classList.remove('adjourn-critical');
+    DOM.adjournBanner.classList.add('active');
+  }
+
+  const updateDisplay = (sec) => {
+    if (DOM.adjournText) {
+      DOM.adjournText.textContent = `${labelPrefix} ${sec} SECONDS...`;
+    }
+    if (DOM.promptIndicator) {
+      DOM.promptIndicator.classList.add('adjourn-countdown');
+      DOM.promptIndicator.textContent = `[ ${sec}s ]`;
+      DOM.promptIndicator.style.display = 'block';
+    }
+    if (sec <= 3 && DOM.adjournBanner) {
+      DOM.adjournBanner.classList.add('adjourn-critical');
+    }
+  };
+
+  const initialSec = Math.round(delayMs / 1000);
+  updateDisplay(initialSec);
+
+  const startTime = Date.now();
+  const endTime = startTime + delayMs;
+
+  dismissCountdownTimer = setInterval(() => {
+    const now = Date.now();
+    const msLeft = Math.max(0, endTime - now);
+    const sec = Math.ceil(msLeft / 1000);
+
+    updateDisplay(sec);
+
+    if (msLeft <= 0) {
+      clearInterval(dismissCountdownTimer);
+      dismissCountdownTimer = null;
+
+      if (DOM.adjournText) {
+        DOM.adjournText.textContent = isGuilty 
+          ? "COURT ADJOURNED — SENTENCE ACTIVE" 
+          : "TAB CLOSED — EUTHANASIA COMPLETE";
+      }
+      if (DOM.promptIndicator) {
+        DOM.promptIndicator.textContent = "[ ADJOURNED ]";
+      }
+
+      // Close courtroom tab after the 15-second stay window has elapsed
+      if (window.chrome && chrome.tabs && chrome.tabs.getCurrent) {
+        chrome.tabs.getCurrent((tab) => {
+          if (tab && tab.id) {
+            chrome.tabs.remove(tab.id);
+          }
+        });
+      } else {
+        try {
+          window.close();
+        } catch (e) {
+          console.log("[Courtroom] window.close() blocked by browser policy:", e);
+        }
+      }
+    }
+  }, 1000);
+}
+
+// --- 9. COURTROOM FINITE STATE MACHINE (FSM) WITH OLLAMA BACKEND ---
+const CourtroomFSM = {
+  transitionTo(newPhase, payload = {}) {
+    console.log(`⚖️ [FSM] State Transition: ${STATE.currentPhase} -> ${newPhase}`, payload);
+    STATE.currentPhase = newPhase;
+
+    switch (newPhase) {
+      case 'AWAITING_UNLOCK':
+        this.enterAwaitingUnlock();
+        break;
+
+      case 'ARRAIGNMENT':
+        this.enterArraignment();
+        break;
+
+      case 'AWAITING_PLEA':
+        this.enterAwaitingPlea();
+        break;
+
+      case 'DELIBERATING':
+        this.enterDeliberating(payload.plea);
+        break;
+
+      case 'VERDICT_GUILTY':
+        this.enterVerdictGuilty(payload.plea, payload.verdictData);
+        break;
+
+      case 'VERDICT_PARDONED':
+        this.enterVerdictPardoned(payload.plea, payload.verdictData);
+        break;
+    }
+  },
+
+  enterAwaitingUnlock() {
+    setJudgeSprite('normal_idle');
+    if (DOM.audioUnlockPrompt) {
+      DOM.audioUnlockPrompt.style.display = 'block';
+    }
+    if (DOM.dialogueContent) {
+      DOM.dialogueContent.innerHTML = '⚖️ COURT IS IN SESSION.<br><span style="color: #ffd700; font-size: 13px;">[ 🔊 CLICK ANYWHERE TO COMMENCE & UNMUTE AUDIO ]</span>';
+    }
+    if (DOM.promptIndicator) {
+      DOM.promptIndicator.style.display = 'block';
+    }
+  },
+
+  enterArraignment() {
+    cancelScreenDismissCountdown();
+    if (DOM.audioUnlockPrompt) {
+      DOM.audioUnlockPrompt.style.display = 'none';
+    }
+    if (DOM.verdictStampContainer) {
+      DOM.verdictStampContainer.classList.remove('active');
+    }
+    if (DOM.gavelCutscene) {
+      DOM.gavelCutscene.classList.remove('active');
+    }
+    if (DOM.resurrectAlert) {
+      DOM.resurrectAlert.classList.remove('active');
+      DOM.resurrectAlert.style.display = 'none';
+    }
+    if (DOM.pdfContainer) {
+      DOM.pdfContainer.classList.remove('active');
+      DOM.pdfContainer.style.display = 'none';
+    }
 
     const chargeSpeech = `Court is now in session! Defendant, you stand accused of UNAUTHORIZED TAB MURDER for the tab: "${STATE.accusedTitle}". How do you plead?!`;
 
     typewriter.type(chargeSpeech, {
-        speed: CONFIG.TYPEWRITER_SPEED_MS,
-        soundInterval: CONFIG.TYPEWRITER_SOUND_INTERVAL,
-        onStart: () => {
-            setJudgeSprite('normal_talking');
-        },
-        onComplete: () => {
-            setJudgeSprite('normal_idle');
-            if (DOM.pleaInput) {
-                DOM.pleaInput.focus();
-            }
-        }
+      speed: CONFIG.TYPEWRITER_SPEED_MS,
+      onStart: () => {
+        setJudgeSprite('normal_talking');
+      },
+      onComplete: () => {
+        setJudgeSprite('normal_idle');
+        this.transitionTo('AWAITING_PLEA');
+      }
     });
+  },
+
+  enterAwaitingPlea() {
+    setJudgeSprite('normal_idle');
+    if (DOM.pleaInput) {
+      DOM.pleaInput.disabled = false;
+      DOM.pleaInput.focus();
+    }
+    if (DOM.submitBtn) DOM.submitBtn.disabled = false;
+    if (DOM.micBtn) DOM.micBtn.disabled = false;
+    DOM.presetChips.forEach(chip => chip.disabled = false);
+    updateCharCounter();
+  },
+
+  async enterDeliberating(pleaText) {
+    cancelScreenDismissCountdown();
+    // 1. Silence active voice recording
+    if (voice && voice.isRecording) {
+      voice.stop(true);
+    }
+
+    // 2. Play dramatic OBJECTION sting
+    sound.play('objection');
+
+    // 3. Lock docket controls
+    if (DOM.pleaInput) DOM.pleaInput.disabled = true;
+    if (DOM.submitBtn) DOM.submitBtn.disabled = true;
+    if (DOM.micBtn) DOM.micBtn.disabled = true;
+    DOM.presetChips.forEach(chip => chip.disabled = true);
+
+    // 4. Set thinking magistrate
+    setJudgeSprite('thinking');
+
+    // 5. Reveal deliberation marquee
+    if (DOM.deliberationBanner) {
+      DOM.deliberationBanner.classList.add('active');
+    }
+
+    // 6. Judge deliberation statement
+    typewriter.type("OBJECTION! The Court will now deliberate on your testimony with the local GPU jury...", {
+      speed: 30
+    });
+
+    let verdictData = null;
+
+    // 7. Live FastAPI / Ollama Backend Request
+    if (!CONFIG.USE_MOCK) {
+      try {
+        console.log("⚡ [BACKEND] Contacting FastAPI Judge at:", CONFIG.API_URL);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 14000);
+
+        const res = await fetch(CONFIG.API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tab_url: STATE.accusedUrl,
+            tab_title: STATE.accusedTitle,
+            plea_text: pleaText
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          verdictData = await res.json();
+          if (typeof verdictData === "string") {
+            verdictData = JSON.parse(verdictData);
+          }
+          console.log("⚡ [BACKEND] Received Ollama Verdict:", verdictData);
+        } else {
+          console.warn("[BACKEND] Server returned non-200:", res.status);
+        }
+      } catch (err) {
+        console.warn("[BACKEND] FastAPI offline or timed out, activating internal GPU jury fallback:", err);
+      }
+    }
+
+    // 8. Graceful Mock Fallback (if backend offline or mock mode)
+    if (!verdictData) {
+      await new Promise(r => setTimeout(r, CONFIG.MOCK_LATENCY_MS));
+      const lower = (pleaText || '').toLowerCase();
+      const isPardoned = lower.includes('cat') || lower.includes('cheaper') || Math.random() < 0.35;
+      const fallbackCaseId = `TAB-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      verdictData = {
+        verdict: isPardoned ? "PARDONED" : "GUILTY",
+        sentence: isPardoned
+          ? `CASE DISMISSED! A plausible defense. The Court reluctantly grants tab euthanasia. Tab closure permitted in ${CONFIG.PARDON_CLOSE_DELAY_MS / 1000} seconds...`
+          : `GUILTY AS CHARGED! The excuse "${pleaText}" is utterly rejected! You had 42 tabs open! This tab is condemned to eternal memory allocation!`,
+        confidence: 0.92,
+        case_id: fallbackCaseId,
+        pdf_download_url: `http://127.0.0.1:8000/download_order/${fallbackCaseId}`
+      };
+    }
+
+    // 9. Route to Verdict Phase
+    const verdictStr = (verdictData.verdict || "GUILTY").toUpperCase();
+    const isGuilty = verdictStr.includes("GUILTY");
+
+    if (isGuilty) {
+      this.transitionTo('VERDICT_GUILTY', { plea: pleaText, verdictData });
+    } else {
+      this.transitionTo('VERDICT_PARDONED', { plea: pleaText, verdictData });
+    }
+  },
+
+  enterVerdictGuilty(pleaText, verdictData = {}) {
+    cancelScreenDismissCountdown();
+    if (DOM.deliberationBanner) {
+      DOM.deliberationBanner.classList.remove('active');
+    }
+
+    // Ensure previous alerts and stamps are hidden while judge speaks
+    if (DOM.resurrectAlert) DOM.resurrectAlert.classList.remove('active');
+    if (DOM.pdfContainer) {
+      DOM.pdfContainer.classList.remove('active');
+      DOM.pdfContainer.style.display = 'none';
+    }
+    if (DOM.verdictStampContainer) DOM.verdictStampContainer.classList.remove('active');
+
+    // Step 1: Judge speaks the full judicial ruling speech FIRST
+    setJudgeSprite('stern_talking');
+    const guiltSpeech = verdictData.sentence || `GUILTY AS CHARGED! The excuse "${pleaText}" is utterly rejected! You had 42 tabs open! This tab is condemned to eternal memory allocation!`;
+
+    typewriter.type(guiltSpeech, {
+      speed: CONFIG.TYPEWRITER_SPEED_MS,
+      onStart: () => {
+        setJudgeSprite('stern_talking');
+      },
+      onComplete: () => {
+        // Step 2: The message has finished fully appearing!
+        // Deliver the dramatic climax: Gavel cutscene, quake, and stamp!
+        setJudgeSprite('surprised');
+
+        setTimeout(() => {
+          // Full-screen Gavel strike cutscene overlay
+          if (DOM.gavelCutscene && DOM.gavelCutsceneImg) {
+            DOM.gavelCutsceneImg.src = ASSETS.sprites.gavel + '?t=' + Date.now();
+            DOM.gavelCutscene.classList.add('active');
+          }
+
+          // Loud Gavel strike audio
+          sound.play('gavel');
+
+          // Screen quake
+          if (DOM.container) {
+            DOM.container.classList.remove('screen-shake');
+            void DOM.container.offsetWidth;
+            DOM.container.classList.add('screen-shake');
+          }
+          if (DOM.gavelCutscene) {
+            DOM.gavelCutscene.classList.remove('screen-shake');
+            void DOM.gavelCutscene.offsetWidth;
+            DOM.gavelCutscene.classList.add('screen-shake');
+          }
+
+          // Step 3: After gavel animation completes (~1150ms), return to courtroom UI
+          setTimeout(() => {
+            if (DOM.gavelCutscene) {
+              DOM.gavelCutscene.classList.remove('active');
+              DOM.gavelCutscene.classList.remove('screen-shake');
+            }
+            if (DOM.container) {
+              DOM.container.classList.remove('screen-shake');
+            }
+
+            // Judge rests in stern mode on the bench
+            setJudgeSprite('stern_idle');
+
+            // 1. SLAM red GUILTY stamp directly over action buttons!
+            if (DOM.verdictStampContainer && DOM.verdictStamp) {
+              DOM.verdictStamp.className = 'verdict-stamp guilty stamp-slam';
+              DOM.verdictStamp.textContent = 'GUILTY';
+              DOM.verdictStampContainer.classList.add('active');
+            }
+
+            // 2. STAGGERED REVEAL: 500ms after stamp, smoothly slide in the Sanction Enforced alert
+            setTimeout(() => {
+              if (DOM.resurrectAlert) {
+                DOM.resurrectAlert.classList.add('active');
+              }
+            }, 500);
+
+            // 3. STAGGERED REVEAL: 1200ms after stamp, smoothly reveal Official PDF Warrant button
+            setTimeout(() => {
+              if (verdictData.pdf_download_url && DOM.pdfContainer && DOM.pdfDownloadBtn) {
+                DOM.pdfDownloadBtn.href = verdictData.pdf_download_url;
+                DOM.pdfContainer.classList.add('active');
+                DOM.pdfContainer.style.display = 'flex';
+              }
+            }, 1200);
+
+            // Step 4: Trigger Chrome Extension tab resurrection in background
+            if (window.chrome && chrome.runtime && chrome.runtime.sendMessage) {
+              try {
+                if (chrome.tabs && chrome.tabs.getCurrent) {
+                  chrome.tabs.getCurrent((currentTab) => {
+                    const tabId = currentTab ? currentTab.id : null;
+                    const winId = currentTab ? currentTab.windowId : null;
+
+                    chrome.runtime.sendMessage({
+                      action: "REVIVE_TAB",
+                      url: STATE.accusedUrl,
+                      courtTabId: tabId,
+                      courtWindowId: winId
+                    }, (response) => {
+                      if (chrome.runtime.lastError) {
+                        console.warn("[Chrome] Tab revival message notice:", chrome.runtime.lastError.message);
+                      } else {
+                        console.log("📌 [Chrome] Tab Resurrected & Pinned:", response);
+                      }
+                    });
+                  });
+                } else {
+                  chrome.runtime.sendMessage({
+                    action: "REVIVE_TAB",
+                    url: STATE.accusedUrl
+                  });
+                }
+              } catch (e) {
+                console.warn("[Chrome] Extension runtime unavailable:", e);
+              }
+            }
+
+            // Step 5: Screen stays open for 15 seconds AFTER final verdict is fully given!
+            setTimeout(() => {
+              startScreenDismissCountdown(CONFIG.VERDICT_CLOSE_DELAY_MS, 'GUILTY');
+            }, 1200);
+          }, 1150);
+        }, 350);
+      }
+    });
+  },
+
+  enterVerdictPardoned(pleaText, verdictData = {}) {
+    cancelScreenDismissCountdown();
+    if (DOM.deliberationBanner) {
+      DOM.deliberationBanner.classList.remove('active');
+    }
+
+    // Ensure previous alerts and stamps are hidden while judge speaks
+    if (DOM.resurrectAlert) DOM.resurrectAlert.classList.remove('active');
+    if (DOM.pdfContainer) {
+      DOM.pdfContainer.classList.remove('active');
+      DOM.pdfContainer.style.display = 'none';
+    }
+    if (DOM.verdictStampContainer) DOM.verdictStampContainer.classList.remove('active');
+
+    // Step 1: Judge speaks dismissal speech FIRST
+    setJudgeSprite('normal_talking');
+    const pardonSpeech = verdictData.sentence || `CASE DISMISSED! A plausible defense. The Court reluctantly grants tab euthanasia. Tab closure permitted in ${CONFIG.VERDICT_CLOSE_DELAY_MS / 1000} seconds...`;
+
+    typewriter.type(pardonSpeech, {
+      speed: CONFIG.TYPEWRITER_SPEED_MS,
+      onStart: () => {
+        setJudgeSprite('normal_talking');
+      },
+      onComplete: () => {
+        // Step 2: Speech has finished fully appearing!
+        // 1. Judge approving nod + 8-bit acquittal fanfare
+        setJudgeSprite('nodding');
+        sound.play('acquitted');
+
+        // 2. SLAM emerald PARDONED stamp directly over action buttons!
+        if (DOM.verdictStampContainer && DOM.verdictStamp) {
+          DOM.verdictStamp.className = 'verdict-stamp pardoned stamp-slam';
+          DOM.verdictStamp.textContent = 'PARDONED';
+          DOM.verdictStampContainer.classList.add('active');
+        }
+
+        // 3. STAGGERED REVEAL: 800ms later, smoothly reveal the Official PDF Warrant button
+        setTimeout(() => {
+          if (verdictData.pdf_download_url && DOM.pdfContainer && DOM.pdfDownloadBtn) {
+            DOM.pdfDownloadBtn.href = verdictData.pdf_download_url;
+            DOM.pdfContainer.classList.add('active');
+            DOM.pdfContainer.style.display = 'flex';
+          }
+        }, 800);
+
+        // Step 4: Screen stays open for 15 seconds AFTER final verdict is fully given!
+        setTimeout(() => {
+          startScreenDismissCountdown(CONFIG.VERDICT_CLOSE_DELAY_MS, 'PARDONED');
+        }, 800);
+      }
+    });
+  }
+};
+
+// --- 10. INITIALIZATION & EVENT BINDINGS ---
+function initCourtroom() {
+  initDOMReferences();
+
+  // Parse query parameters
+  const urlParams = new URLSearchParams(window.location.search);
+  STATE.accusedTitle = urlParams.get('title') || "Wikipedia: List of Unfinished Projects";
+  STATE.accusedUrl = urlParams.get('url') || "https://en.wikipedia.org/wiki/List_of_unsolved_problems";
+
+  const randomNum = Math.floor(1000 + Math.random() * 9000);
+  STATE.caseId = `CASE #TAB-${randomNum}`;
+
+  // Update HUD
+  if (DOM.accusedTitle) DOM.accusedTitle.textContent = STATE.accusedTitle;
+  if (DOM.accusedUrl) DOM.accusedUrl.textContent = STATE.accusedUrl;
+  if (DOM.caseId) DOM.caseId.textContent = STATE.caseId;
+
+  if (DOM.engineStatus) {
+    DOM.engineStatus.textContent = CONFIG.USE_MOCK ? "MOCK GPU JURY" : "OLLAMA AI JURY";
+    if (CONFIG.USE_MOCK) DOM.engineStatus.classList.add('mock-active');
+    else DOM.engineStatus.classList.remove('mock-active');
+  }
+
+  // Preload Sprites
+  preloadSprites();
+
+  // Bind Quick Plea Chips
+  DOM.presetChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      const plea = chip.getAttribute('data-plea');
+      if (DOM.pleaInput && plea) {
+        DOM.pleaInput.value = plea;
+        updateCharCounter();
+        DOM.pleaInput.focus();
+        playChipClick();
+      }
+    });
+  });
+
+  // Bind Character Counter Input Listener
+  if (DOM.pleaInput) {
+    DOM.pleaInput.addEventListener('input', updateCharCounter);
+  }
+
+  // Bind Voice Mic Button
+  if (DOM.micBtn) {
+    DOM.micBtn.addEventListener('click', () => {
+      voice.toggle();
+    });
+  }
+
+  // Bind Audio Toggle Button
+  if (DOM.audioBtn) {
+    DOM.audioBtn.addEventListener('click', () => {
+      const isMuted = sound.toggleMute();
+      DOM.audioBtn.textContent = isMuted ? "🔇 SFX: OFF" : "🔊 SFX: ON";
+      DOM.audioBtn.style.color = isMuted ? "#888" : "var(--gold-primary)";
+    });
+  }
+
+  // Bind Dialogue Skip / Replay
+  if (DOM.dialogueContainer) {
+    DOM.dialogueContainer.addEventListener('click', () => {
+      if (typewriter.isTyping) {
+        typewriter.skip();
+      } else if (STATE.currentPhase === 'AWAITING_PLEA') {
+        CourtroomFSM.transitionTo('ARRAIGNMENT');
+      }
+    });
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && document.activeElement !== DOM.pleaInput) {
+      if (typewriter.isTyping) {
+        e.preventDefault();
+        typewriter.skip();
+      }
+    }
+  });
+
+  // Bind Plea Submit Action
+  const submitPlea = () => {
+    if (STATE.currentPhase === 'DELIBERATING' || STATE.currentPhase.startsWith('VERDICT')) {
+      return;
+    }
+    sound.playSubmitClick();
+    if (voice && voice.isRecording) {
+      voice.stop(true);
+    }
+    const text = (DOM.pleaInput && DOM.pleaInput.value.trim()) || "Your Honor, I swear I was going to read it!";
+    STATE.submittedPlea = text;
+    CourtroomFSM.transitionTo('DELIBERATING', { plea: text });
+  };
+
+  if (DOM.submitBtn) {
+    DOM.submitBtn.addEventListener('click', submitPlea);
+  }
+
+  if (DOM.pleaInput) {
+    DOM.pleaInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitPlea();
+      }
+    });
+  }
+
+  // Universal First Interaction Listener (Unlocks Audio on Click or Key)
+  const unlockAudioGesture = () => {
+    sound.unlock();
+    window.removeEventListener('pointerdown', unlockAudioGesture);
+    window.removeEventListener('keydown', unlockAudioGesture);
+
+    if (STATE.currentPhase === 'AWAITING_UNLOCK') {
+      CourtroomFSM.transitionTo('ARRAIGNMENT');
+    }
+  };
+
+  window.addEventListener('pointerdown', unlockAudioGesture, { passive: true });
+  window.addEventListener('keydown', unlockAudioGesture, { passive: true });
+
+  if (DOM.audioUnlockPrompt) {
+    DOM.audioUnlockPrompt.addEventListener('click', unlockAudioGesture);
+  }
+
+  console.log("⚖️ [TAB COURT] Engine Online.", {
+    case: STATE.caseId,
+    title: STATE.accusedTitle,
+    mock: CONFIG.USE_MOCK,
+    api: CONFIG.API_URL
+  });
+
+  // Check autoplay status on start
+  sound.checkAutoplay(
+    () => {
+      CourtroomFSM.transitionTo('ARRAIGNMENT');
+    },
+    () => {
+      CourtroomFSM.transitionTo('AWAITING_UNLOCK');
+    }
+  );
 }
 
 // Kick off initialization on DOM ready
-let isCourtroomInitialized = false;
-function bootstrapCourtroom() {
-    if (isCourtroomInitialized) return;
-    isCourtroomInitialized = true;
-    initCourtroom();
-}
-
-document.addEventListener("DOMContentLoaded", () => {
-    bootstrapCourtroom();
-});
-
-if (document.readyState === "interactive" || document.readyState === "complete") {
-    bootstrapCourtroom();
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initCourtroom);
+} else {
+  initCourtroom();
 }

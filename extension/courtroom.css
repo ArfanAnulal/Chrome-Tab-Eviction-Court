@@ -520,6 +520,18 @@ html, body {
   100% { transform: translateY(3px); }
 }
 
+.prompt-indicator.adjourn-countdown {
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  color: var(--gold-primary);
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid var(--gold-dark);
+  padding: 3px 6px;
+  border-radius: 2px;
+  animation: none;
+  letter-spacing: 0.5px;
+}
+
 /* DELIBERATION LOADING BANNER */
 #deliberation-banner {
   display: none; /* toggled when deliberating */
@@ -811,11 +823,21 @@ html, body {
   border: 2px solid #ff4444;
   color: #fff;
   font-size: 8px;
-  padding: 6px 12px;
+  padding: 8px 14px;
   text-align: center;
   letter-spacing: 1px;
   box-shadow: 0 0 15px rgba(255, 68, 68, 0.5);
-  animation: alertPulse 1s infinite alternate;
+  animation: alertPulse 1.2s infinite alternate;
+}
+
+#resurrect-alert.active {
+  display: block;
+  animation: smoothSlideIn 0.45s ease-out, alertPulse 1.2s infinite alternate 0.45s;
+}
+
+@keyframes smoothSlideIn {
+  0% { opacity: 0; transform: translateY(-8px) scale(0.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 @keyframes alertPulse {
@@ -829,8 +851,18 @@ html, body {
   justify-content: center;
   align-items: center;
   padding: 4px 0;
-  margin: 6px 0 16px 0;
+  margin: 8px 0 12px 0;
   z-index: 10;
+}
+
+#pdf-container.active {
+  display: flex;
+  animation: smoothFadeUp 0.5s ease-out;
+}
+
+@keyframes smoothFadeUp {
+  0% { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 
 .pdf-order-btn {
@@ -856,6 +888,39 @@ html, body {
   transform: translateY(-1px);
   box-shadow: 0 0 18px rgba(240, 192, 64, 0.7), 0 3px 0 #5c4305;
   color: #000;
+}
+
+/* 15-SECOND ADJOURN COUNTDOWN BANNER */
+.adjourn-banner {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 6px auto 10px auto;
+  padding: 6px 14px;
+  background: rgba(13, 19, 31, 0.94);
+  border: 1px solid var(--gold-dark);
+  border-radius: 3px;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  color: var(--gold-primary);
+  letter-spacing: 0.5px;
+  box-shadow: 0 0 10px rgba(240, 192, 64, 0.25);
+  animation: smoothFadeUp 0.4s ease-out;
+  width: fit-content;
+  max-width: 90%;
+  z-index: 10;
+}
+
+.adjourn-banner.active {
+  display: flex;
+}
+
+.adjourn-banner.adjourn-critical {
+  color: #ff5555;
+  border-color: #ff2222;
+  box-shadow: 0 0 12px rgba(255, 34, 34, 0.5);
+  animation: counterShake 0.25s infinite alternate;
 }
 
 /* SCREEN SHAKE ANIMATION */
