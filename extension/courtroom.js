@@ -1,6 +1,6 @@
 /**
  * ==========================================================================
- * CHROME TAB EVICTION COURT - COURTROOM ENGINE
+ * ATTORNEY GENERAL TAB-NEY WRIGHT - COURTROOM ENGINE
  * Dev 2 Scope: Audio Engine, Typewriter Dialogue, Judge Sprite State Machine,
  * Voice Dictation, 16-Bit Sound Synthesizer & Live Ollama/FastAPI AI Handshake
  * ==========================================================================

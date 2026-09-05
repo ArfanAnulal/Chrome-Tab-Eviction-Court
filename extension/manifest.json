@@ -1,8 +1,20 @@
 {
   "manifest_version": 3,
-  "name": "Tab Eviction Court",
+  "name": "Attorney General Tab-ney Wright",
   "version": "1.0",
-  "description": "Puts closed tabs on trial before a retro AI judge.",
+  "description": "Puts closed tabs on trial before Attorney General Tab-ney Wright.",
+  "action": {
+    "default_icon": {
+      "16": "assets/Judge_Favicon_16.png",
+      "32": "assets/Judge_Favicon_32.png",
+      "48": "assets/Judge_Favicon_48.png"
+    }
+  },
+  "icons": {
+    "16": "assets/Judge_Favicon_16.png",
+    "32": "assets/Judge_Favicon_32.png",
+    "48": "assets/Judge_Favicon_48.png"
+  },
   "permissions": [
     "tabs",
     "storage"

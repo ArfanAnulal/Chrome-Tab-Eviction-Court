@@ -63,7 +63,7 @@ html, body {
   image-rendering: crisp-edges;
 }
 
-/* --- 4. CRT MONITOR SCANLINES & VIGNETTE OVERLAY --- */
+/* --- 4. CRT MONITOR SCANLINES (VIGNETTE REMOVED FOR MAXIMUM VISIBILITY) --- */
 #crt-overlay {
   position: fixed;
   top: 0;
@@ -72,29 +72,16 @@ html, body {
   height: 100vh;
   pointer-events: none;
   z-index: 9999;
-  /* Scanline horizontal lines */
+  /* Subtle retro scanlines only - dark corner vignette and inset shadows removed for full legibility */
   background: 
     linear-gradient(
       rgba(18, 16, 16, 0) 50%, 
-      rgba(0, 0, 0, 0.38) 50%
-    ),
-    /* CRT Barrel Vignette */
-    radial-gradient(
-      circle at center,
-      rgba(0, 0, 0, 0) 60%,
-      rgba(0, 0, 0, 0.55) 85%,
-      rgba(0, 0, 0, 0.88) 100%
+      rgba(0, 0, 0, 0.12) 50%
     );
-  background-size: 100% 4px, 100% 100%;
-  box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.9);
-  animation: crtFlicker 0.15s infinite;
+  background-size: 100% 4px;
+  box-shadow: none;
 }
 
-@keyframes crtFlicker {
-  0% { opacity: 0.97; }
-  50% { opacity: 1.0; }
-  100% { opacity: 0.98; }
-}
 
 /* --- 5. MAIN COURTROOM CONTAINER --- */
 #courtroom-container {

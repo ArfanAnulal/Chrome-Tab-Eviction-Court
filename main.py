@@ -41,7 +41,7 @@ class CasePayload(BaseModel):
     tab_title: str
     plea_text: str
 
-SYSTEM_PROMPT = """You are "The Honorable Magistrate Bit-Shift", a wildly pompous, theatrical, 16-bit arcade magistrate presiding over the High Court of Productivity Eviction.
+SYSTEM_PROMPT = """You are "Attorney General Tab-ney Wright", a wildly pompous, theatrical, 16-bit arcade magistrate presiding over the High Court of Productivity Eviction.
 
 ### YOUR PERSONA & STYLE:
 - Grandiose, archaic legal vocabulary mixed with terminal-grade digital brainrot (e.g., "pusillanimous", "chicanery", "execrable", "ignominious", "bloviating", "perfidy", "anathema", "delusion", "skill issue").
@@ -269,7 +269,7 @@ def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
     # Chambers Subtitle
     c.setFont("Helvetica-Bold", 11)
     c.setFillColor(colors.HexColor("#4A3525"))
-    c.drawCentredString(width / 2.0, height - 89, "CHAMBERS OF THE HONORABLE MAGISTRATE BIT-SHIFT")
+    c.drawCentredString(width / 2.0, height - 89, "CHAMBERS OF ATTORNEY GENERAL TAB-NEY WRIGHT")
 
     # Absurd Latin lore / motto
     c.setFont("Times-Italic", 8.5)
@@ -453,7 +453,7 @@ def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
         leading=14.5,
         textColor=colors.HexColor("#141414")
     )
-    sentence_p = Paragraph(f"<b>MAGISTRATE'S BENCH OPINION:</b> {html.escape(sentence)}", sentence_style)
+    sentence_p = Paragraph(f"<b>ATTORNEY GENERAL TAB-NEY WRIGHT'S OPINION:</b> {html.escape(sentence)}", sentence_style)
     sw, sh = sentence_p.wrap(content_w, 90)
     sentence_p.drawOn(c, left_x, cur_y - sh)
     cur_y -= (sh + 8)
@@ -567,11 +567,11 @@ def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
     c.setFillColor(colors.HexColor("#666666"))
     c.drawString(left_x, sig_y - 14, "Office of Discord Dispatcher & Tab Monitor")
 
-    # Right: Magistrate Bit-Shift Signature
+    # Right: Attorney General Tab-ney Wright Signature
     sig_r_x = width - left_x - 190
     c.setFont("Times-BoldItalic", 13)
     c.setFillColor(colors.HexColor("#4A1515"))
-    c.drawString(sig_r_x + 10, sig_y + 16, "The Hon. Magistrate Bit-Shift, CJ.")
+    c.drawString(sig_r_x + 10, sig_y + 16, "Atty. Gen. Tab-ney Wright")
 
     c.setLineWidth(0.8)
     c.setStrokeColor(colors.HexColor("#444444"))
@@ -579,10 +579,10 @@ def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
 
     c.setFont("Helvetica-Bold", 7.5)
     c.setFillColor(colors.HexColor("#222222"))
-    c.drawString(sig_r_x, sig_y - 4, "THE HONORABLE MAGISTRATE BIT-SHIFT")
+    c.drawString(sig_r_x, sig_y - 4, "ATTORNEY GENERAL TAB-NEY WRIGHT")
     c.setFont("Courier", 6.5)
     c.setFillColor(colors.HexColor("#666666"))
-    c.drawString(sig_r_x, sig_y - 14, "Chief Justice, Ollama Llama 3.2:3b Tribunal")
+    c.drawString(sig_r_x, sig_y - 14, "Chief Justice & Attorney General, Tab Court")
 
     # -------------------------------------------------------------
     # 6. RETRO BARCODE & SERIAL STRIP
@@ -608,7 +608,7 @@ def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
 
 DEFAULT_OFFLINE_RULING = {
     "verdict": "GUILTY",
-    "sentence": "The Honorable Magistrate Bit-Shift's neural conduit severed in visceral disgust at your pusillanimous excuse! By peremptory decree of the High Docket, you stand convicted of digital contempt!",
+    "sentence": "Attorney General Tab-ney Wright's neural conduit severed in visceral disgust at your pusillanimous excuse! By peremptory decree of the High Docket, you stand convicted of digital contempt!",
     "confidence": 0.50,
 }
 
