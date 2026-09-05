@@ -1,7 +1,7 @@
 /**
  * ==========================================================================
  * CHROME TAB EVICTION COURT - COURTROOM ENGINE
- * Dev 2 Scope: Audio Engine & Typewriter Dialogue System (Step 2)
+ * Dev 2 Scope: Step 2 Audio Engine & Step 3 Judge Sprite State Machine
  * ==========================================================================
  */
 
@@ -11,8 +11,8 @@ const CONFIG = {
   USE_MOCK: true,
   API_URL: "http://127.0.0.1:8000/judge",
   MOCK_LATENCY_MS: 2000,
-  TYPEWRITER_SPEED_MS: 38, // Slowed down from 25ms for natural retro dialogue pace
-  TYPEWRITER_SOUND_INTERVAL: 3, // Slower sound cadence: blip every 3 characters instead of 2
+  TYPEWRITER_SPEED_MS: 38,       // Natural retro dialogue cadence
+  TYPEWRITER_SOUND_INTERVAL: 3,  // Balanced mechanical clack rhythm
   AUDIO_ENABLED: true,
   PARDON_CLOSE_DELAY_MS: 4000
 };
@@ -45,8 +45,9 @@ const STATE = {
   audioMuted: !CONFIG.AUDIO_ENABLED,
   audioUnlocked: false,
   isRecording: false,
-  currentPhase: 'ARRAIGNMENT', // 'ARRAIGNMENT' | 'DELIBERATING' | 'GUILTY' | 'PARDONED'
-  currentJudgeSprite: 'normal_idle'
+  currentPhase: 'INIT', // 'INIT' | 'AWAITING_UNLOCK' | 'ARRAIGNMENT' | 'AWAITING_PLEA' | 'DELIBERATING' | 'VERDICT_GUILTY' | 'VERDICT_PARDONED'
+  currentJudgeSprite: 'normal_idle',
+  submittedPlea: ''
 };
 
 // --- 4. DOM ELEMENTS ---
@@ -72,7 +73,11 @@ const DOM = {
   presetChips: document.querySelectorAll('.preset-chip'),
   verdictStampContainer: document.getElementById('verdict-stamp-container'),
   verdictStamp: document.getElementById('verdict-stamp'),
-  resurrectAlert: document.getElementById('resurrect-alert')
+  charCounter: document.getElementById('char-counter'),
+  micNotice: document.getElementById('mic-notice'),
+  micIcon: document.getElementById('mic-icon'),
+  gavelCutscene: document.getElementById('gavel-cutscene'),
+  gavelCutsceneImg: document.getElementById('gavel-cutscene-img')
 };
 
 // --- 5. AUDIO ENGINE (SOUND CONTROLLER) ---
@@ -80,6 +85,7 @@ class SoundController {
   constructor() {
     this.muted = STATE.audioMuted;
     this.unlocked = false;
+    this.audioCtx = null;
 
     // Standard audio objects
     this.sounds = {
@@ -88,7 +94,7 @@ class SoundController {
       acquitted: new Audio(ASSETS.audio.acquitted)
     };
 
-    // Continuous typewriter audio loop (assets/typewriter.mp3 is a 4.34s typing recording)
+    // Continuous typewriter audio loop (assets/typewriter.mp3 is 4.34s typing recording)
     this.typewriterAudio = new Audio(ASSETS.audio.typewriter);
     this.typewriterAudio.loop = true;
     this.typewriterAudio.volume = 0.55;
@@ -97,53 +103,216 @@ class SoundController {
     this.sounds.gavel.volume = 0.9;
     this.sounds.objection.volume = 0.85;
     this.sounds.acquitted.volume = 0.85;
-
-    this.initAutoplay();
   }
 
   /**
-   * Check browser autoplay permissions and set up seamless unlock
+   * Check if browser allows autoplay without initial interaction
    */
-  initAutoplay() {
-    // Test silent play
-    const testAudio = new Audio(ASSETS.audio.typewriter);
-    testAudio.volume = 0.01;
-    const playPromise = testAudio.play();
+  checkAutoplay(onAllowed, onBlocked) {
+    const testAudio = new Audio(ASSETS.audio.objection);
+    testAudio.volume = 0.001;
+    const p = testAudio.play();
 
-    if (playPromise !== undefined) {
-      playPromise
-        .then(() => {
-          this.unlocked = true;
-          STATE.audioUnlocked = true;
-          testAudio.pause();
-          if (DOM.audioUnlockPrompt) DOM.audioUnlockPrompt.style.display = 'none';
-        })
-        .catch(() => {
-          this.unlocked = false;
-          STATE.audioUnlocked = false;
-          if (DOM.audioUnlockPrompt) DOM.audioUnlockPrompt.style.display = 'block';
-        });
+    if (p !== undefined) {
+      p.then(() => {
+        this.unlocked = true;
+        STATE.audioUnlocked = true;
+        testAudio.pause();
+        testAudio.currentTime = 0;
+        if (DOM.audioUnlockPrompt) DOM.audioUnlockPrompt.style.display = 'none';
+        if (onAllowed) onAllowed();
+      }).catch(() => {
+        this.unlocked = false;
+        STATE.audioUnlocked = false;
+        if (DOM.audioUnlockPrompt) DOM.audioUnlockPrompt.style.display = 'block';
+        if (onBlocked) onBlocked();
+      });
+    } else {
+      if (onBlocked) onBlocked();
+    }
+  }
+
+  /**
+   * Unlock audio engine upon first user interaction
+   */
+  unlock() {
+    if (this.unlocked) return;
+    this.unlocked = true;
+    STATE.audioUnlocked = true;
+
+    if (DOM.audioUnlockPrompt) {
+      DOM.audioUnlockPrompt.style.display = 'none';
     }
 
-    // Universal gesture unlock on first user click or keypress
-    const unlockHandler = () => {
-      this.unlocked = true;
-      STATE.audioUnlocked = true;
-      if (DOM.audioUnlockPrompt) DOM.audioUnlockPrompt.style.display = 'none';
+    // Warm up Web Audio API context for zero-latency mechanical synth
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx && !this.audioCtx) {
+        this.audioCtx = new AudioCtx();
+      }
+      if (this.audioCtx && this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume();
+      }
+    } catch (e) {}
 
-      Object.values(this.sounds).forEach(s => s.load());
-      this.typewriterAudio.load();
+    // Warm up all audio instances
+    Object.values(this.sounds).forEach(snd => {
+      snd.play().then(() => {
+        snd.pause();
+        snd.currentTime = 0;
+      }).catch(() => {});
+    });
 
-      window.removeEventListener('pointerdown', unlockHandler);
-      window.removeEventListener('keydown', unlockHandler);
-    };
-
-    window.addEventListener('pointerdown', unlockHandler, { passive: true });
-    window.addEventListener('keydown', unlockHandler, { passive: true });
+    // If typewriter is currently in typing mode, resume typing sound immediately
+    if (typewriter && typewriter.isTyping && !this.muted) {
+      this.startTypewriter();
+    }
   }
 
   /**
-   * Starts the typewriter typing sound loop
+   * Synthesize a tactile 16-bit mechanical keyboard switch click (zero external assets needed)
+   */
+  playMechanicalClick() {
+    if (this.muted) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!this.audioCtx) {
+        this.audioCtx = new AudioCtx();
+      }
+      if (this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume();
+      }
+
+      const t = this.audioCtx.currentTime;
+
+      // 1. High crisp tactile click impulse (plastic key switch snap)
+      const osc = this.audioCtx.createOscillator();
+      const gain = this.audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(1600, t);
+      osc.frequency.exponentialRampToValueAtTime(320, t + 0.032);
+
+      gain.gain.setValueAtTime(0.45, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.032);
+
+      osc.connect(gain);
+      gain.connect(this.audioCtx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.034);
+
+      // 2. Low mechanical bottom-out thud (switch housing body resonance)
+      const thudOsc = this.audioCtx.createOscillator();
+      const thudGain = this.audioCtx.createGain();
+      thudOsc.type = 'sine';
+      thudOsc.frequency.setValueAtTime(280, t);
+      thudOsc.frequency.exponentialRampToValueAtTime(70, t + 0.045);
+
+      thudGain.gain.setValueAtTime(0.35, t);
+      thudGain.gain.exponentialRampToValueAtTime(0.001, t + 0.045);
+
+      thudOsc.connect(thudGain);
+      thudGain.connect(this.audioCtx.destination);
+
+      thudOsc.start(t);
+      thudOsc.stop(t + 0.047);
+    } catch (e) {
+      console.warn("[Audio] Mechanical click synth error:", e);
+    }
+  }
+
+  /**
+   * Synthesize an 8-bit digital chirp for microphone toggle (recording on/off)
+   */
+  playMicToggle(isStarting) {
+    if (this.muted) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!this.audioCtx) this.audioCtx = new AudioCtx();
+      if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+
+      const t = this.audioCtx.currentTime;
+      const osc = this.audioCtx.createOscillator();
+      const gain = this.audioCtx.createGain();
+
+      osc.type = 'sine';
+      if (isStarting) {
+        // High rising chirp (520Hz -> 880Hz) - mic active
+        osc.frequency.setValueAtTime(520, t);
+        osc.frequency.setValueAtTime(880, t + 0.04);
+      } else {
+        // Descending chirp (880Hz -> 440Hz) - mic disengaged
+        osc.frequency.setValueAtTime(880, t);
+        osc.frequency.setValueAtTime(440, t + 0.04);
+      }
+
+      gain.gain.setValueAtTime(0.35, t);
+      gain.gain.setValueAtTime(0.35, t + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+
+      osc.connect(gain);
+      gain.connect(this.audioCtx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.1);
+    } catch (e) {
+      console.warn("[Audio] Mic synth error:", e);
+    }
+  }
+
+  /**
+   * Synthesize a heavy arcade button slam when submitting a plea
+   */
+  playSubmitClick() {
+    if (this.muted) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!this.audioCtx) this.audioCtx = new AudioCtx();
+      if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+
+      const t = this.audioCtx.currentTime;
+
+      // Heavy tactile arcade plunger snap
+      const osc = this.audioCtx.createOscillator();
+      const gain = this.audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(900, t);
+      osc.frequency.exponentialRampToValueAtTime(140, t + 0.05);
+
+      gain.gain.setValueAtTime(0.5, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+
+      osc.connect(gain);
+      gain.connect(this.audioCtx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.055);
+
+      // Low mechanical thud
+      const thud = this.audioCtx.createOscillator();
+      const thudGain = this.audioCtx.createGain();
+      thud.type = 'sine';
+      thud.frequency.setValueAtTime(200, t);
+      thud.frequency.exponentialRampToValueAtTime(50, t + 0.07);
+
+      thudGain.gain.setValueAtTime(0.4, t);
+      thudGain.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+
+      thud.connect(thudGain);
+      thudGain.connect(this.audioCtx.destination);
+
+      thud.start(t);
+      thud.stop(t + 0.075);
+    } catch (e) {
+      console.warn("[Audio] Submit synth error:", e);
+    }
+  }
+
+  /**
+   * Starts the typewriter audio loop
    */
   startTypewriter() {
     if (this.muted) return;
@@ -155,7 +324,7 @@ class SoundController {
   }
 
   /**
-   * Immediately stops the typewriter typing sound loop
+   * Immediately stops the typewriter audio loop
    */
   stopTypewriter() {
     try {
@@ -174,7 +343,7 @@ class SoundController {
       snd.currentTime = 0;
       const p = snd.play();
       if (p !== undefined) {
-        p.catch(err => console.warn(`[Audio] Blocked on play(${name}):`, err));
+        p.catch(err => console.warn(`[Audio] Play blocked for ${name}:`, err));
       }
     }
   }
@@ -187,6 +356,9 @@ class SoundController {
     STATE.audioMuted = this.muted;
     if (this.muted) {
       this.stopTypewriter();
+    } else {
+      // Play brief feedback chime when unmuting so user knows speakers are working
+      this.play('objection');
     }
     return this.muted;
   }
@@ -203,14 +375,12 @@ class TypewriterEngine {
     this.timeoutId = null;
     this.fullText = '';
     this.charIndex = 0;
-    this.charSoundCounter = 0;
     this.onCompleteCallback = null;
-    this.speed = CONFIG.TYPEWRITER_SPEED_MS || 38;
-    this.soundInterval = CONFIG.TYPEWRITER_SOUND_INTERVAL || 3;
+    this.speed = CONFIG.TYPEWRITER_SPEED_MS;
   }
 
   /**
-   * Type out text character-by-character into the dialogue box
+   * Type out text character-by-character into dialogue box
    * @param {string} text 
    * @param {object} options 
    * @returns {Promise<void>}
@@ -220,10 +390,8 @@ class TypewriterEngine {
 
     this.fullText = text;
     this.charIndex = 0;
-    this.charSoundCounter = 0;
     this.isTyping = true;
-    this.speed = options.speed || CONFIG.TYPEWRITER_SPEED_MS || 38;
-    this.soundInterval = options.soundInterval || CONFIG.TYPEWRITER_SOUND_INTERVAL || 3;
+    this.speed = options.speed || CONFIG.TYPEWRITER_SPEED_MS;
     this.onStart = options.onStart || null;
     this.onComplete = options.onComplete || null;
 
@@ -239,7 +407,7 @@ class TypewriterEngine {
 
     if (this.onStart) this.onStart();
 
-    // Start authentic typewriter audio track
+    // Start authentic typewriter audio loop
     this.soundController.startTypewriter();
 
     return new Promise((resolve) => {
@@ -276,10 +444,10 @@ class TypewriterEngine {
       // Add natural pauses at punctuation for realistic cadence
       let delay = this.speed;
       if (char === '.' || char === '!' || char === '?') {
-        delay = this.speed * 4.5;
+        delay = this.speed * 4.2;
         this.soundController.typewriterAudio.pause();
       } else if (char === ',' || char === ';' || char === ':') {
-        delay = this.speed * 2.2;
+        delay = this.speed * 2.0;
       } else {
         if (!this.soundController.muted && this.soundController.typewriterAudio.paused) {
           this.soundController.typewriterAudio.play().catch(() => {});
@@ -293,7 +461,7 @@ class TypewriterEngine {
   }
 
   /**
-   * Fast-forward / skip dialogue to the end immediately
+   * Fast-forward / skip dialogue immediately
    */
   skip() {
     if (!this.isTyping) return;
@@ -306,7 +474,7 @@ class TypewriterEngine {
   }
 
   /**
-   * Finalize the typing process
+   * Finalize typing process
    */
   finish() {
     this.isTyping = false;
@@ -336,7 +504,179 @@ class TypewriterEngine {
 // Global Typewriter Engine Instance
 const typewriter = new TypewriterEngine(sound);
 
-// --- 7. SPRITE STATE CONTROLLER ---
+// --- 7. VOICE RECOGNITION CONTROLLER (STEP 4) ---
+class VoiceController {
+  constructor() {
+    this.isRecording = false;
+    this.recognition = null;
+    this.baseText = '';
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    this.supported = !!SpeechRec;
+
+    if (this.supported) {
+      try {
+        this.recognition = new SpeechRec();
+        this.recognition.continuous = true;
+        this.recognition.interimResults = true;
+        this.recognition.lang = 'en-US';
+        this.setupListeners();
+      } catch (e) {
+        console.warn("🎙️ [VOICE] Failed to initialize SpeechRecognition:", e);
+        this.supported = false;
+      }
+    }
+  }
+
+  setupListeners() {
+    this.recognition.onresult = (event) => {
+      let interim = '';
+      let final = '';
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          final += event.results[i][0].transcript;
+        } else {
+          interim += event.results[i][0].transcript;
+        }
+      }
+
+      const spoken = (final + ' ' + interim).trim();
+      if (DOM.pleaInput && spoken) {
+        const combined = this.baseText ? `${this.baseText} ${spoken}` : spoken;
+        DOM.pleaInput.value = combined.slice(0, 280);
+        updateCharCounter();
+      }
+    };
+
+    this.recognition.onerror = (event) => {
+      console.warn("🎙️ [VOICE] Recognition error:", event.error);
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        this.showNotice("⚠️ MIC PERMISSION DENIED — PLEASE TYPE YOUR PLEA BELOW");
+      } else if (event.error === 'no-speech') {
+        // Soft silence timeout, handle gracefully
+      } else {
+        this.showNotice(`⚠️ VOICE NOTICE: ${event.error.toUpperCase()}`);
+      }
+      this.stop();
+    };
+
+    this.recognition.onend = () => {
+      if (this.isRecording) {
+        this.stop();
+      }
+    };
+  }
+
+  start() {
+    if (!this.supported) {
+      this.showNotice("⚠️ SPEECH RECOGNITION NOT SUPPORTED (TYPE DEFENSE BELOW)");
+      return;
+    }
+
+    if (this.isRecording) return;
+    this.hideNotice();
+
+    this.baseText = DOM.pleaInput ? DOM.pleaInput.value.trim() : '';
+    this.isRecording = true;
+    STATE.isRecording = true;
+
+    try {
+      this.recognition.start();
+    } catch (err) {
+      console.warn("🎙️ [VOICE] Start exception:", err);
+      this.stop(true);
+      return;
+    }
+
+    // Play retro mic engage audio chirp
+    sound.playMicToggle(true);
+
+    // Update UI states
+    if (DOM.micBtn) DOM.micBtn.classList.add('recording');
+    if (DOM.micBtnText) DOM.micBtnText.textContent = "STOP [LISTENING]";
+    if (DOM.micIcon) DOM.micIcon.textContent = "⏹️";
+    if (DOM.recordingStatus) DOM.recordingStatus.style.display = 'flex';
+  }
+
+  stop(silent = false) {
+    if (!this.isRecording) return;
+    this.isRecording = false;
+    STATE.isRecording = false;
+
+    // Play retro mic disengage audio chirp (unless silent stop on submit)
+    if (!silent) {
+      sound.playMicToggle(false);
+    }
+
+    if (this.recognition) {
+      try {
+        this.recognition.stop();
+      } catch (e) {}
+    }
+
+    // Reset UI states
+    if (DOM.micBtn) DOM.micBtn.classList.remove('recording');
+    if (DOM.micBtnText) DOM.micBtnText.textContent = "VOICE PLEA";
+    if (DOM.micIcon) DOM.micIcon.textContent = "🎙️";
+    if (DOM.recordingStatus) DOM.recordingStatus.style.display = 'none';
+
+    if (DOM.pleaInput) {
+      DOM.pleaInput.focus();
+    }
+  }
+
+  toggle() {
+    if (this.isRecording) {
+      this.stop();
+    } else {
+      this.start();
+    }
+  }
+
+  showNotice(msg) {
+    if (DOM.micNotice) {
+      DOM.micNotice.textContent = msg;
+      DOM.micNotice.classList.add('active');
+      setTimeout(() => {
+        this.hideNotice();
+      }, 5000);
+    }
+  }
+
+  hideNotice() {
+    if (DOM.micNotice) {
+      DOM.micNotice.classList.remove('active');
+    }
+  }
+}
+
+// Global Voice Controller Instance
+const voice = new VoiceController();
+
+/**
+ * Updates the live character counter badge in the dock header
+ */
+function updateCharCounter() {
+  if (!DOM.pleaInput || !DOM.charCounter) return;
+  const len = DOM.pleaInput.value.length;
+  DOM.charCounter.textContent = `${len}/280`;
+  if (len >= 280) {
+    DOM.charCounter.className = 'char-counter limit-reached';
+  } else if (len >= 240) {
+    DOM.charCounter.className = 'char-counter limit-near';
+  } else {
+    DOM.charCounter.className = 'char-counter';
+  }
+}
+
+/**
+ * Plays a tactile mechanical keyboard switch click on chip interaction
+ */
+function playChipClick() {
+  sound.playMechanicalClick();
+}
+
+// --- 8. SPRITE STATE CONTROLLER ---
 function setJudgeSprite(stateName) {
   const spriteSrc = ASSETS.sprites[stateName];
   if (!spriteSrc || !DOM.judgeSprite) return;
@@ -344,7 +684,7 @@ function setJudgeSprite(stateName) {
   STATE.currentJudgeSprite = stateName;
   DOM.judgeSprite.src = spriteSrc;
 
-  // Toggle gavel styling offset if state is gavel
+  // Toggle gavel offset class
   if (stateName === 'gavel') {
     DOM.judgeSprite.classList.add('gavel-active');
   } else {
@@ -362,14 +702,250 @@ function preloadSprites() {
   });
 }
 
-// --- 8. INITIALIZATION & ARRAIGNMENT SPEECH (STEP 2) ---
+// --- 8. STEP 3: COURTROOM FINITE STATE MACHINE (FSM) ---
+const CourtroomFSM = {
+  /**
+   * Transition to a new courtroom phase
+   * @param {string} newPhase 
+   * @param {object} payload 
+   */
+  transitionTo(newPhase, payload = {}) {
+    console.log(`⚖️ [FSM] State Transition: ${STATE.currentPhase} -> ${newPhase}`, payload);
+    STATE.currentPhase = newPhase;
+
+    switch (newPhase) {
+      case 'AWAITING_UNLOCK':
+        this.enterAwaitingUnlock();
+        break;
+
+      case 'ARRAIGNMENT':
+        this.enterArraignment();
+        break;
+
+      case 'AWAITING_PLEA':
+        this.enterAwaitingPlea();
+        break;
+
+      case 'DELIBERATING':
+        this.enterDeliberating(payload.plea);
+        break;
+
+      case 'VERDICT_GUILTY':
+        this.enterVerdictGuilty(payload.plea);
+        break;
+
+      case 'VERDICT_PARDONED':
+        this.enterVerdictPardoned(payload.plea);
+        break;
+    }
+  },
+
+  enterAwaitingUnlock() {
+    setJudgeSprite('normal_idle');
+    if (DOM.audioUnlockPrompt) {
+      DOM.audioUnlockPrompt.style.display = 'block';
+    }
+    if (DOM.dialogueContent) {
+      DOM.dialogueContent.innerHTML = '⚖️ COURT IS IN SESSION.<br><span style="color: #ffd700; font-size: 13px;">[ 🔊 CLICK ANYWHERE TO COMMENCE & UNMUTE AUDIO ]</span>';
+    }
+    if (DOM.promptIndicator) {
+      DOM.promptIndicator.style.display = 'block';
+    }
+  },
+
+  enterArraignment() {
+    if (DOM.audioUnlockPrompt) {
+      DOM.audioUnlockPrompt.style.display = 'none';
+    }
+    if (DOM.verdictStampContainer) {
+      DOM.verdictStampContainer.classList.remove('active');
+    }
+    if (DOM.gavelCutscene) {
+      DOM.gavelCutscene.classList.remove('active');
+    }
+    if (DOM.resurrectAlert) {
+      DOM.resurrectAlert.style.display = 'none';
+    }
+
+    const chargeSpeech = `Court is now in session! Defendant, you stand accused of UNAUTHORIZED TAB MURDER for the tab: "${STATE.accusedTitle}". How do you plead?!`;
+
+    typewriter.type(chargeSpeech, {
+      speed: CONFIG.TYPEWRITER_SPEED_MS,
+      onStart: () => {
+        setJudgeSprite('normal_talking');
+      },
+      onComplete: () => {
+        setJudgeSprite('normal_idle');
+        this.transitionTo('AWAITING_PLEA');
+      }
+    });
+  },
+
+  enterAwaitingPlea() {
+    setJudgeSprite('normal_idle');
+    if (DOM.pleaInput) {
+      DOM.pleaInput.disabled = false;
+      DOM.pleaInput.focus();
+    }
+    if (DOM.submitBtn) DOM.submitBtn.disabled = false;
+    if (DOM.micBtn) DOM.micBtn.disabled = false;
+    DOM.presetChips.forEach(chip => chip.disabled = false);
+    updateCharCounter();
+  },
+
+  enterDeliberating(pleaText) {
+    // Stop active voice recording immediately
+    if (voice && voice.isRecording) {
+      voice.stop(true);
+    }
+
+    // 1. Play dramatic OBJECTION sting
+    sound.play('objection');
+
+    // 2. Lock defendant input dock
+    if (DOM.pleaInput) DOM.pleaInput.disabled = true;
+    if (DOM.submitBtn) DOM.submitBtn.disabled = true;
+    if (DOM.micBtn) DOM.micBtn.disabled = true;
+    DOM.presetChips.forEach(chip => chip.disabled = true);
+
+    // 3. Switch judge sprite to thinking
+    setJudgeSprite('thinking');
+
+    // 4. Show deliberation progress banner
+    if (DOM.deliberationBanner) {
+      DOM.deliberationBanner.classList.add('active');
+    }
+
+    // 5. Judge deliberate monologue
+    typewriter.type("OBJECTION! The Court will now deliberate on your testimony...", {
+      speed: 30,
+      onComplete: () => {
+        // Wait simulated Ollama GPU deliberation latency
+        setTimeout(() => {
+          // Check plea keywords: cat or cheaper deal gets pardon, otherwise 50/50
+          const lowerPlea = (pleaText || '').toLowerCase();
+          const isPardoned = lowerPlea.includes('cat') || lowerPlea.includes('cheaper') || Math.random() < 0.35;
+
+          if (isPardoned) {
+            this.transitionTo('VERDICT_PARDONED', { plea: pleaText });
+          } else {
+            this.transitionTo('VERDICT_GUILTY', { plea: pleaText });
+          }
+        }, CONFIG.MOCK_LATENCY_MS);
+      }
+    });
+  },
+
+  enterVerdictGuilty(pleaText) {
+    // Hide deliberation marquee
+    if (DOM.deliberationBanner) {
+      DOM.deliberationBanner.classList.remove('active');
+    }
+
+    // Step 1: Flash surprised judge (350ms)
+    setJudgeSprite('surprised');
+
+    setTimeout(() => {
+      // Step 2: Full-screen Gavel strike cutscene takes over the entire screen
+      if (DOM.gavelCutscene && DOM.gavelCutsceneImg) {
+        DOM.gavelCutsceneImg.src = ASSETS.sprites.gavel + '?t=' + Date.now();
+        DOM.gavelCutscene.classList.add('active');
+      }
+
+      // Step 3: Play loud Gavel sound
+      sound.play('gavel');
+
+      // Step 4: Screen shake quake
+      if (DOM.container) {
+        DOM.container.classList.remove('screen-shake');
+        void DOM.container.offsetWidth; // Force reflow
+        DOM.container.classList.add('screen-shake');
+      }
+      if (DOM.gavelCutscene) {
+        DOM.gavelCutscene.classList.remove('screen-shake');
+        void DOM.gavelCutscene.offsetWidth;
+        DOM.gavelCutscene.classList.add('screen-shake');
+      }
+
+      // Step 5: After gavel animation completes (~1150ms), return to courtroom UI
+      setTimeout(() => {
+        if (DOM.gavelCutscene) {
+          DOM.gavelCutscene.classList.remove('active');
+          DOM.gavelCutscene.classList.remove('screen-shake');
+        }
+        if (DOM.container) {
+          DOM.container.classList.remove('screen-shake');
+        }
+
+        // Judge is now moving in stern talking mode on the bench
+        setJudgeSprite('stern_talking');
+
+        // Step 6: Slam red GUILTY stamp directly over defendant's testimony text box
+        if (DOM.verdictStampContainer && DOM.verdictStamp) {
+          DOM.verdictStamp.className = 'verdict-stamp guilty stamp-slam';
+          DOM.verdictStamp.textContent = 'GUILTY';
+          DOM.verdictStampContainer.classList.add('active');
+        }
+
+        // Step 7: Harsh verdict speech
+        const guiltSpeech = `GUILTY AS CHARGED! The excuse "${pleaText}" is utterly rejected! You had 42 tabs open! This tab is condemned to eternal memory allocation!`;
+
+        typewriter.type(guiltSpeech, {
+          speed: CONFIG.TYPEWRITER_SPEED_MS,
+          onStart: () => {
+            setJudgeSprite('stern_talking');
+          },
+          onComplete: () => {
+            setJudgeSprite('stern_idle');
+            // Reveal resurrected tab notification
+            if (DOM.resurrectAlert) {
+              DOM.resurrectAlert.style.display = 'block';
+            }
+            console.log("📌 [TAB COURT] SANCTION ENFORCED: Tab Pinned Forever.");
+          }
+        });
+      }, 1150);
+    }, 350);
+  },
+
+  enterVerdictPardoned(pleaText) {
+    // Hide deliberation marquee
+    if (DOM.deliberationBanner) {
+      DOM.deliberationBanner.classList.remove('active');
+    }
+
+    // Step 1: Judge Nodding (uncovered and visible moving on bench)
+    setJudgeSprite('nodding');
+
+    // Step 2: Acquittal 8-bit fanfare
+    sound.play('acquitted');
+
+    // Step 3: Slam emerald PARDONED stamp directly over defendant's testimony text box
+    if (DOM.verdictStampContainer && DOM.verdictStamp) {
+      DOM.verdictStamp.className = 'verdict-stamp pardoned stamp-slam';
+      DOM.verdictStamp.textContent = 'PARDONED';
+      DOM.verdictStampContainer.classList.add('active');
+    }
+
+    // Step 4: Dismissal speech
+    const pardonSpeech = `CASE DISMISSED! A plausible defense. The Court reluctantly grants tab euthanasia. Tab closure permitted in ${CONFIG.PARDON_CLOSE_DELAY_MS / 1000} seconds...`;
+
+    typewriter.type(pardonSpeech, {
+      speed: CONFIG.TYPEWRITER_SPEED_MS,
+      onComplete: () => {
+        console.log("🕊️ [TAB COURT] PARDON GRANTED: Tab will close.");
+      }
+    });
+  }
+};
+
+// --- 9. INITIALIZATION & EVENT BINDINGS ---
 function initCourtroom() {
-  // Parse query parameters passed by Chrome tab interceptor
+  // Parse query parameters
   const urlParams = new URLSearchParams(window.location.search);
   STATE.accusedTitle = urlParams.get('title') || "Wikipedia: List of Unfinished Projects";
   STATE.accusedUrl = urlParams.get('url') || "https://en.wikipedia.org/wiki/List_of_unsolved_problems";
 
-  // Generate randomized retro case ID
   const randomNum = Math.floor(1000 + Math.random() * 9000);
   STATE.caseId = `CASE #TAB-${randomNum}`;
 
@@ -392,10 +968,24 @@ function initCourtroom() {
       const plea = chip.getAttribute('data-plea');
       if (DOM.pleaInput && plea) {
         DOM.pleaInput.value = plea;
+        updateCharCounter();
         DOM.pleaInput.focus();
+        playChipClick();
       }
     });
   });
+
+  // Bind Character Counter Input Listener
+  if (DOM.pleaInput) {
+    DOM.pleaInput.addEventListener('input', updateCharCounter);
+  }
+
+  // Bind Voice Mic Button (Step 4)
+  if (DOM.micBtn) {
+    DOM.micBtn.addEventListener('click', () => {
+      voice.toggle();
+    });
+  }
 
   // Bind Audio Toggle Button
   if (DOM.audioBtn) {
@@ -406,17 +996,20 @@ function initCourtroom() {
     });
   }
 
-  // Bind Dialogue Skip (Click dialogue box or press Space)
+  // Bind Dialogue Skip / Replay
   if (DOM.dialogueContainer) {
     DOM.dialogueContainer.addEventListener('click', () => {
       if (typewriter.isTyping) {
         typewriter.skip();
+      } else if (STATE.currentPhase === 'AWAITING_PLEA') {
+        // Replay charge speech if clicked when waiting for plea
+        CourtroomFSM.transitionTo('ARRAIGNMENT');
       }
     });
   }
 
   window.addEventListener('keydown', (e) => {
-    // If Space is pressed and user is not actively typing inside the plea textarea
+    // Space skips dialogue if not inside plea input
     if (e.code === 'Space' && document.activeElement !== DOM.pleaInput) {
       if (typewriter.isTyping) {
         e.preventDefault();
@@ -425,51 +1018,71 @@ function initCourtroom() {
     }
   });
 
-  // Bind Audio Unlock Banner Click
-  if (DOM.audioUnlockPrompt) {
-    DOM.audioUnlockPrompt.addEventListener('click', () => {
-      sound.unlocked = true;
-      STATE.audioUnlocked = true;
-      DOM.audioUnlockPrompt.style.display = 'none';
-      startArraignment();
+  // Bind Plea Submit Action
+  const submitPlea = () => {
+    if (STATE.currentPhase === 'DELIBERATING' || STATE.currentPhase.startsWith('VERDICT')) {
+      return; // Already submitted
+    }
+    // Play tactile arcade submit button slam
+    sound.playSubmitClick();
+
+    if (voice && voice.isRecording) {
+      voice.stop(true);
+    }
+    const text = (DOM.pleaInput && DOM.pleaInput.value.trim()) || "Your Honor, I swear I was going to read it!";
+    STATE.submittedPlea = text;
+    CourtroomFSM.transitionTo('DELIBERATING', { plea: text });
+  };
+
+  if (DOM.submitBtn) {
+    DOM.submitBtn.addEventListener('click', submitPlea);
+  }
+
+  if (DOM.pleaInput) {
+    DOM.pleaInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitPlea();
+      }
     });
   }
 
-  console.log("⚖️ [TAB COURT] Courtroom Engine Online.", {
+  // Universal First Interaction Listener (Unlocks Audio on Click or Key)
+  const unlockAudioGesture = () => {
+    sound.unlock();
+    window.removeEventListener('pointerdown', unlockAudioGesture);
+    window.removeEventListener('keydown', unlockAudioGesture);
+
+    // If currently awaiting unlock, start Arraignment immediately with sound!
+    if (STATE.currentPhase === 'AWAITING_UNLOCK') {
+      CourtroomFSM.transitionTo('ARRAIGNMENT');
+    }
+  };
+
+  window.addEventListener('pointerdown', unlockAudioGesture, { passive: true });
+  window.addEventListener('keydown', unlockAudioGesture, { passive: true });
+
+  if (DOM.audioUnlockPrompt) {
+    DOM.audioUnlockPrompt.addEventListener('click', unlockAudioGesture);
+  }
+
+  console.log("⚖️ [TAB COURT] Engine Online.", {
     case: STATE.caseId,
     title: STATE.accusedTitle,
-    url: STATE.accusedUrl,
     mock: CONFIG.USE_MOCK
   });
 
-  // --- START INITIAL ARRAIGNMENT SPEECH ---
-  startArraignment();
-}
-
-/**
- * Executes the initial courtroom charge reading
- */
-function startArraignment() {
-  STATE.currentPhase = 'ARRAIGNMENT';
-
-  const chargeSpeech = `Court is now in session! Defendant, you stand accused of UNAUTHORIZED TAB MURDER for the tab: "${STATE.accusedTitle}". How do you plead?!`;
-
-  typewriter.type(chargeSpeech, {
-    speed: CONFIG.TYPEWRITER_SPEED_MS,
-    soundInterval: CONFIG.TYPEWRITER_SOUND_INTERVAL, // Play blip every 3 characters
-    onStart: () => {
-      // Mouth moves while speaking charge
-      setJudgeSprite('normal_talking');
+  // Check autoplay status on start
+  sound.checkAutoplay(
+    () => {
+      // Autoplay permitted: start arraignment directly
+      CourtroomFSM.transitionTo('ARRAIGNMENT');
     },
-    onComplete: () => {
-      // Judge rests when sentence finishes
-      setJudgeSprite('normal_idle');
-      // Focus plea textarea for user
-      if (DOM.pleaInput) {
-        DOM.pleaInput.focus();
-      }
+    () => {
+      // Autoplay blocked: show prompt and wait for user's first click
+      CourtroomFSM.transitionTo('AWAITING_UNLOCK');
     }
-  });
+  );
 }
 
 // Kick off initialization on DOM ready
