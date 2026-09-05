@@ -119,12 +119,29 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "REVIVE_TAB" && message.url) {
     try {
-      // Punish the user: revive the closed page as a pinned tab
-      chrome.tabs.create({ url: message.url, pinned: true }, (newTab) => {
+      // Punish the user: revive the closed page as a pinned tab in the background without stealing focus
+      const createOptions = {
+        url: message.url,
+        pinned: true,
+        active: false // Do not redirect or steal focus from the courtroom
+      };
+      if (sender?.tab?.windowId !== undefined) {
+        createOptions.windowId = sender.tab.windowId;
+      }
+
+      chrome.tabs.create(createOptions, (newTab) => {
         if (chrome.runtime.lastError) {
           console.warn("[Tab Courtroom] Tab revival failed:", chrome.runtime.lastError.message);
           sendResponse({ status: "error", error: chrome.runtime.lastError.message });
         } else {
+          // Explicitly ensure courtroom tab retains active focus
+          if (sender?.tab?.id) {
+            chrome.tabs.update(sender.tab.id, { active: true }, () => {
+              if (chrome.runtime.lastError) {
+                // Ignore if tab already closed/active
+              }
+            });
+          }
           sendResponse({ status: "tab_resurrected", tabId: newTab ? newTab.id : null });
         }
       });
