@@ -1037,7 +1037,6 @@ html, body {
   50% { width: 70%; }
   100% { width: 100%; }
 }
-}
 
 /* --- 11. RESPONSIVE SCALING & TWEAKS --- */
 @media (max-height: 700px) {
