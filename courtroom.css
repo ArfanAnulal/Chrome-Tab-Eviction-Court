@@ -588,6 +588,40 @@ html, body {
   letter-spacing: 1px;
 }
 
+.dock-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.char-counter {
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  color: #637b9b;
+  background: #090e17;
+  border: 1px solid #1c2738;
+  padding: 2px 6px;
+  border-radius: 2px;
+  letter-spacing: 0.5px;
+}
+
+.char-counter.limit-near {
+  color: #f1c40f;
+  border-color: #b8860b;
+}
+
+.char-counter.limit-reached {
+  color: #e74c3c;
+  border-color: #c0392b;
+  animation: counterShake 0.2s 2;
+}
+
+@keyframes counterShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+}
+
 /* RECORDING AUDIO STATUS INDICATOR */
 #recording-status {
   display: none; /* Revealed when recording */
@@ -595,14 +629,35 @@ html, body {
   gap: 6px;
   font-size: 8px;
   color: #ff3333;
-  animation: recordingBlink 0.6s infinite;
   letter-spacing: 1px;
 }
 
-@keyframes recordingBlink {
-  0% { opacity: 1; }
-  50% { opacity: 0.3; }
-  100% { opacity: 1; }
+.rec-dot {
+  display: inline-block;
+  animation: recBlink 0.6s infinite alternate;
+}
+
+@keyframes recBlink {
+  0% { opacity: 0.2; transform: scale(0.85); }
+  100% { opacity: 1; transform: scale(1.15); }
+}
+
+/* RETRO MIC FEEDBACK NOTICE */
+.mic-notice {
+  display: none;
+  background: rgba(140, 20, 20, 0.95);
+  border: 1px solid #ff4444;
+  color: #fff;
+  font-size: 8px;
+  padding: 4px 10px;
+  margin-bottom: 6px;
+  text-align: center;
+  letter-spacing: 0.5px;
+  animation: alertPulse 1s infinite alternate;
+}
+
+.mic-notice.active {
+  display: block;
 }
 
 .input-row {
@@ -644,6 +699,7 @@ html, body {
 
 /* ARCADE BUTTONS */
 .action-btn-group {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -686,10 +742,16 @@ html, body {
 }
 
 #mic-btn.recording {
-  background: #7a151b;
-  color: #ff9999;
-  border-color: #ff3333;
-  box-shadow: 0 0 12px rgba(255, 51, 51, 0.6);
+  background: #8b1820;
+  color: #ffcccc;
+  border-color: #ff4444;
+  box-shadow: 0 0 14px rgba(255, 68, 68, 0.8), inset 0 0 8px rgba(0, 0, 0, 0.5);
+  animation: micRecordPulse 0.9s infinite alternate ease-in-out;
+}
+
+@keyframes micRecordPulse {
+  0% { transform: scale(0.98); box-shadow: 0 0 8px rgba(255, 68, 68, 0.5); }
+  100% { transform: scale(1.02); box-shadow: 0 0 18px rgba(255, 68, 68, 0.9); }
 }
 
 /* Submit Plea Button */
@@ -734,6 +796,12 @@ html, body {
   border-color: var(--gold-primary);
   color: var(--gold-primary);
   background: #1c273e;
+}
+
+.preset-chip:active {
+  transform: translateY(1px);
+  background: #233454;
+  border-color: #ffd700;
 }
 
 /* --- 10. NOTIFICATIONS, VERDICT STAMPS & SCREEN SHAKE --- */
@@ -806,53 +874,59 @@ html, body {
   image-rendering: crisp-edges;
 }
 
-/* VERDICT STAMP STYLING (COVERS DEFENDANT TESTIMONY TEXT BOX) */
+/* VERDICT STAMP STYLING (COVERS VOICE & SUBMIT PLEA BUTTONS) */
 #verdict-stamp-container {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 25;
+  top: -7px;
+  left: 50px;
+  width: calc(100% + 12px);
+  height: calc(100% + 8px);
+  z-index: 35;
   pointer-events: none;
   display: none;
-  width: 100%;
-  text-align: center;
+  justify-content: center;
+  align-items: center;
 }
 
 #verdict-stamp-container.active {
-  display: block;
+  display: flex;
 }
 
 .verdict-stamp {
   font-family: var(--font-pixel);
-  font-size: 26px;
+  font-size: 22px;
   font-weight: 900;
-  letter-spacing: 4px;
-  padding: 6px 20px;
-  border-width: 4px;
+  letter-spacing: 2px;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-width: 5px;
   border-style: dashed;
   text-align: center;
   text-transform: uppercase;
   border-radius: 4px;
-  display: inline-block;
+  box-sizing: border-box;
+  white-space: nowrap;
   opacity: 0;
-  transform: scale(2.8) rotate(-7deg);
+  transform: scale(2.6) rotate(-4deg);
 }
 
 .verdict-stamp.guilty {
-  color: #ff3333;
-  border-color: #ff3333;
-  background: rgba(160, 0, 0, 0.88);
-  text-shadow: 0 0 15px rgba(255, 51, 51, 0.95), 2px 2px 0 #000;
-  box-shadow: inset 0 0 15px rgba(255, 0, 0, 0.7), 0 0 25px rgba(255, 0, 0, 0.85);
+  color: #ffffff;
+  border-color: #ff2222;
+  background: rgba(185, 10, 10, 0.96);
+  text-shadow: 0 0 15px rgba(255, 34, 34, 0.95), 2px 2px 0 #000;
+  box-shadow: 0 0 25px rgba(255, 34, 34, 0.85), inset 0 0 18px rgba(0, 0, 0, 0.6);
 }
 
 .verdict-stamp.pardoned {
-  color: #2ecc71;
+  color: #ffffff;
   border-color: #2ecc71;
-  background: rgba(0, 140, 55, 0.88);
+  background: rgba(12, 148, 58, 0.96);
   text-shadow: 0 0 15px rgba(46, 204, 113, 0.95), 2px 2px 0 #000;
-  box-shadow: inset 0 0 15px rgba(46, 204, 113, 0.7), 0 0 25px rgba(46, 204, 113, 0.85);
+  box-shadow: 0 0 25px rgba(46, 204, 113, 0.85), inset 0 0 18px rgba(0, 0, 0, 0.6);
 }
 
 .verdict-stamp.stamp-slam {
@@ -862,18 +936,18 @@ html, body {
 @keyframes stampSlamImpact {
   0% {
     opacity: 0;
-    transform: scale(2.8) rotate(-16deg);
+    transform: scale(2.6) rotate(-14deg);
   }
   65% {
     opacity: 1;
-    transform: scale(0.96) rotate(-5deg);
+    transform: scale(0.96) rotate(-3deg);
   }
   85% {
-    transform: scale(1.03) rotate(-8deg);
+    transform: scale(1.03) rotate(-6deg);
   }
   100% {
     opacity: 1;
-    transform: scale(1) rotate(-6deg);
+    transform: scale(1.4) rotate(-20deg);
   }
 }
 

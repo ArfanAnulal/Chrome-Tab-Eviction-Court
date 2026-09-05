@@ -73,7 +73,9 @@ const DOM = {
   presetChips: document.querySelectorAll('.preset-chip'),
   verdictStampContainer: document.getElementById('verdict-stamp-container'),
   verdictStamp: document.getElementById('verdict-stamp'),
-  resurrectAlert: document.getElementById('resurrect-alert'),
+  charCounter: document.getElementById('char-counter'),
+  micNotice: document.getElementById('mic-notice'),
+  micIcon: document.getElementById('mic-icon'),
   gavelCutscene: document.getElementById('gavel-cutscene'),
   gavelCutsceneImg: document.getElementById('gavel-cutscene-img')
 };
@@ -83,6 +85,7 @@ class SoundController {
   constructor() {
     this.muted = STATE.audioMuted;
     this.unlocked = false;
+    this.audioCtx = null;
 
     // Standard audio objects
     this.sounds = {
@@ -141,6 +144,17 @@ class SoundController {
       DOM.audioUnlockPrompt.style.display = 'none';
     }
 
+    // Warm up Web Audio API context for zero-latency mechanical synth
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx && !this.audioCtx) {
+        this.audioCtx = new AudioCtx();
+      }
+      if (this.audioCtx && this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume();
+      }
+    } catch (e) {}
+
     // Warm up all audio instances
     Object.values(this.sounds).forEach(snd => {
       snd.play().then(() => {
@@ -152,6 +166,148 @@ class SoundController {
     // If typewriter is currently in typing mode, resume typing sound immediately
     if (typewriter && typewriter.isTyping && !this.muted) {
       this.startTypewriter();
+    }
+  }
+
+  /**
+   * Synthesize a tactile 16-bit mechanical keyboard switch click (zero external assets needed)
+   */
+  playMechanicalClick() {
+    if (this.muted) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!this.audioCtx) {
+        this.audioCtx = new AudioCtx();
+      }
+      if (this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume();
+      }
+
+      const t = this.audioCtx.currentTime;
+
+      // 1. High crisp tactile click impulse (plastic key switch snap)
+      const osc = this.audioCtx.createOscillator();
+      const gain = this.audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(1600, t);
+      osc.frequency.exponentialRampToValueAtTime(320, t + 0.032);
+
+      gain.gain.setValueAtTime(0.45, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.032);
+
+      osc.connect(gain);
+      gain.connect(this.audioCtx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.034);
+
+      // 2. Low mechanical bottom-out thud (switch housing body resonance)
+      const thudOsc = this.audioCtx.createOscillator();
+      const thudGain = this.audioCtx.createGain();
+      thudOsc.type = 'sine';
+      thudOsc.frequency.setValueAtTime(280, t);
+      thudOsc.frequency.exponentialRampToValueAtTime(70, t + 0.045);
+
+      thudGain.gain.setValueAtTime(0.35, t);
+      thudGain.gain.exponentialRampToValueAtTime(0.001, t + 0.045);
+
+      thudOsc.connect(thudGain);
+      thudGain.connect(this.audioCtx.destination);
+
+      thudOsc.start(t);
+      thudOsc.stop(t + 0.047);
+    } catch (e) {
+      console.warn("[Audio] Mechanical click synth error:", e);
+    }
+  }
+
+  /**
+   * Synthesize an 8-bit digital chirp for microphone toggle (recording on/off)
+   */
+  playMicToggle(isStarting) {
+    if (this.muted) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!this.audioCtx) this.audioCtx = new AudioCtx();
+      if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+
+      const t = this.audioCtx.currentTime;
+      const osc = this.audioCtx.createOscillator();
+      const gain = this.audioCtx.createGain();
+
+      osc.type = 'sine';
+      if (isStarting) {
+        // High rising chirp (520Hz -> 880Hz) - mic active
+        osc.frequency.setValueAtTime(520, t);
+        osc.frequency.setValueAtTime(880, t + 0.04);
+      } else {
+        // Descending chirp (880Hz -> 440Hz) - mic disengaged
+        osc.frequency.setValueAtTime(880, t);
+        osc.frequency.setValueAtTime(440, t + 0.04);
+      }
+
+      gain.gain.setValueAtTime(0.35, t);
+      gain.gain.setValueAtTime(0.35, t + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+
+      osc.connect(gain);
+      gain.connect(this.audioCtx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.1);
+    } catch (e) {
+      console.warn("[Audio] Mic synth error:", e);
+    }
+  }
+
+  /**
+   * Synthesize a heavy arcade button slam when submitting a plea
+   */
+  playSubmitClick() {
+    if (this.muted) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!this.audioCtx) this.audioCtx = new AudioCtx();
+      if (this.audioCtx.state === 'suspended') this.audioCtx.resume();
+
+      const t = this.audioCtx.currentTime;
+
+      // Heavy tactile arcade plunger snap
+      const osc = this.audioCtx.createOscillator();
+      const gain = this.audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(900, t);
+      osc.frequency.exponentialRampToValueAtTime(140, t + 0.05);
+
+      gain.gain.setValueAtTime(0.5, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+
+      osc.connect(gain);
+      gain.connect(this.audioCtx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.055);
+
+      // Low mechanical thud
+      const thud = this.audioCtx.createOscillator();
+      const thudGain = this.audioCtx.createGain();
+      thud.type = 'sine';
+      thud.frequency.setValueAtTime(200, t);
+      thud.frequency.exponentialRampToValueAtTime(50, t + 0.07);
+
+      thudGain.gain.setValueAtTime(0.4, t);
+      thudGain.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+
+      thud.connect(thudGain);
+      thudGain.connect(this.audioCtx.destination);
+
+      thud.start(t);
+      thud.stop(t + 0.075);
+    } catch (e) {
+      console.warn("[Audio] Submit synth error:", e);
     }
   }
 
@@ -348,7 +504,179 @@ class TypewriterEngine {
 // Global Typewriter Engine Instance
 const typewriter = new TypewriterEngine(sound);
 
-// --- 7. SPRITE STATE CONTROLLER ---
+// --- 7. VOICE RECOGNITION CONTROLLER (STEP 4) ---
+class VoiceController {
+  constructor() {
+    this.isRecording = false;
+    this.recognition = null;
+    this.baseText = '';
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    this.supported = !!SpeechRec;
+
+    if (this.supported) {
+      try {
+        this.recognition = new SpeechRec();
+        this.recognition.continuous = true;
+        this.recognition.interimResults = true;
+        this.recognition.lang = 'en-US';
+        this.setupListeners();
+      } catch (e) {
+        console.warn("🎙️ [VOICE] Failed to initialize SpeechRecognition:", e);
+        this.supported = false;
+      }
+    }
+  }
+
+  setupListeners() {
+    this.recognition.onresult = (event) => {
+      let interim = '';
+      let final = '';
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          final += event.results[i][0].transcript;
+        } else {
+          interim += event.results[i][0].transcript;
+        }
+      }
+
+      const spoken = (final + ' ' + interim).trim();
+      if (DOM.pleaInput && spoken) {
+        const combined = this.baseText ? `${this.baseText} ${spoken}` : spoken;
+        DOM.pleaInput.value = combined.slice(0, 280);
+        updateCharCounter();
+      }
+    };
+
+    this.recognition.onerror = (event) => {
+      console.warn("🎙️ [VOICE] Recognition error:", event.error);
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        this.showNotice("⚠️ MIC PERMISSION DENIED — PLEASE TYPE YOUR PLEA BELOW");
+      } else if (event.error === 'no-speech') {
+        // Soft silence timeout, handle gracefully
+      } else {
+        this.showNotice(`⚠️ VOICE NOTICE: ${event.error.toUpperCase()}`);
+      }
+      this.stop();
+    };
+
+    this.recognition.onend = () => {
+      if (this.isRecording) {
+        this.stop();
+      }
+    };
+  }
+
+  start() {
+    if (!this.supported) {
+      this.showNotice("⚠️ SPEECH RECOGNITION NOT SUPPORTED (TYPE DEFENSE BELOW)");
+      return;
+    }
+
+    if (this.isRecording) return;
+    this.hideNotice();
+
+    this.baseText = DOM.pleaInput ? DOM.pleaInput.value.trim() : '';
+    this.isRecording = true;
+    STATE.isRecording = true;
+
+    try {
+      this.recognition.start();
+    } catch (err) {
+      console.warn("🎙️ [VOICE] Start exception:", err);
+      this.stop(true);
+      return;
+    }
+
+    // Play retro mic engage audio chirp
+    sound.playMicToggle(true);
+
+    // Update UI states
+    if (DOM.micBtn) DOM.micBtn.classList.add('recording');
+    if (DOM.micBtnText) DOM.micBtnText.textContent = "STOP [LISTENING]";
+    if (DOM.micIcon) DOM.micIcon.textContent = "⏹️";
+    if (DOM.recordingStatus) DOM.recordingStatus.style.display = 'flex';
+  }
+
+  stop(silent = false) {
+    if (!this.isRecording) return;
+    this.isRecording = false;
+    STATE.isRecording = false;
+
+    // Play retro mic disengage audio chirp (unless silent stop on submit)
+    if (!silent) {
+      sound.playMicToggle(false);
+    }
+
+    if (this.recognition) {
+      try {
+        this.recognition.stop();
+      } catch (e) {}
+    }
+
+    // Reset UI states
+    if (DOM.micBtn) DOM.micBtn.classList.remove('recording');
+    if (DOM.micBtnText) DOM.micBtnText.textContent = "VOICE PLEA";
+    if (DOM.micIcon) DOM.micIcon.textContent = "🎙️";
+    if (DOM.recordingStatus) DOM.recordingStatus.style.display = 'none';
+
+    if (DOM.pleaInput) {
+      DOM.pleaInput.focus();
+    }
+  }
+
+  toggle() {
+    if (this.isRecording) {
+      this.stop();
+    } else {
+      this.start();
+    }
+  }
+
+  showNotice(msg) {
+    if (DOM.micNotice) {
+      DOM.micNotice.textContent = msg;
+      DOM.micNotice.classList.add('active');
+      setTimeout(() => {
+        this.hideNotice();
+      }, 5000);
+    }
+  }
+
+  hideNotice() {
+    if (DOM.micNotice) {
+      DOM.micNotice.classList.remove('active');
+    }
+  }
+}
+
+// Global Voice Controller Instance
+const voice = new VoiceController();
+
+/**
+ * Updates the live character counter badge in the dock header
+ */
+function updateCharCounter() {
+  if (!DOM.pleaInput || !DOM.charCounter) return;
+  const len = DOM.pleaInput.value.length;
+  DOM.charCounter.textContent = `${len}/280`;
+  if (len >= 280) {
+    DOM.charCounter.className = 'char-counter limit-reached';
+  } else if (len >= 240) {
+    DOM.charCounter.className = 'char-counter limit-near';
+  } else {
+    DOM.charCounter.className = 'char-counter';
+  }
+}
+
+/**
+ * Plays a tactile mechanical keyboard switch click on chip interaction
+ */
+function playChipClick() {
+  sound.playMechanicalClick();
+}
+
+// --- 8. SPRITE STATE CONTROLLER ---
 function setJudgeSprite(stateName) {
   const spriteSrc = ASSETS.sprites[stateName];
   if (!spriteSrc || !DOM.judgeSprite) return;
@@ -461,9 +789,16 @@ const CourtroomFSM = {
     }
     if (DOM.submitBtn) DOM.submitBtn.disabled = false;
     if (DOM.micBtn) DOM.micBtn.disabled = false;
+    DOM.presetChips.forEach(chip => chip.disabled = false);
+    updateCharCounter();
   },
 
   enterDeliberating(pleaText) {
+    // Stop active voice recording immediately
+    if (voice && voice.isRecording) {
+      voice.stop(true);
+    }
+
     // 1. Play dramatic OBJECTION sting
     sound.play('objection');
 
@@ -471,6 +806,7 @@ const CourtroomFSM = {
     if (DOM.pleaInput) DOM.pleaInput.disabled = true;
     if (DOM.submitBtn) DOM.submitBtn.disabled = true;
     if (DOM.micBtn) DOM.micBtn.disabled = true;
+    DOM.presetChips.forEach(chip => chip.disabled = true);
 
     // 3. Switch judge sprite to thinking
     setJudgeSprite('thinking');
@@ -632,10 +968,24 @@ function initCourtroom() {
       const plea = chip.getAttribute('data-plea');
       if (DOM.pleaInput && plea) {
         DOM.pleaInput.value = plea;
+        updateCharCounter();
         DOM.pleaInput.focus();
+        playChipClick();
       }
     });
   });
+
+  // Bind Character Counter Input Listener
+  if (DOM.pleaInput) {
+    DOM.pleaInput.addEventListener('input', updateCharCounter);
+  }
+
+  // Bind Voice Mic Button (Step 4)
+  if (DOM.micBtn) {
+    DOM.micBtn.addEventListener('click', () => {
+      voice.toggle();
+    });
+  }
 
   // Bind Audio Toggle Button
   if (DOM.audioBtn) {
@@ -672,6 +1022,12 @@ function initCourtroom() {
   const submitPlea = () => {
     if (STATE.currentPhase === 'DELIBERATING' || STATE.currentPhase.startsWith('VERDICT')) {
       return; // Already submitted
+    }
+    // Play tactile arcade submit button slam
+    sound.playSubmitClick();
+
+    if (voice && voice.isRecording) {
+      voice.stop(true);
     }
     const text = (DOM.pleaInput && DOM.pleaInput.value.trim()) || "Your Honor, I swear I was going to read it!";
     STATE.submittedPlea = text;

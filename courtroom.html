@@ -108,11 +108,16 @@
     <footer id="testimony-dock">
       <div class="dock-header">
         <span class="dock-title">DEFENDANT TESTIMONY DOCK</span>
-        <div id="recording-status">
-          <span>🔴</span>
-          <span>RECORDING TESTIMONY... [SPEAK NOW]</span>
+        <div class="dock-header-right">
+          <div id="recording-status">
+            <span class="rec-dot">🔴</span>
+            <span>RECORDING TESTIMONY... [SPEAK NOW]</span>
+          </div>
+          <span id="char-counter" class="char-counter">0/280</span>
         </div>
       </div>
+
+      <div id="mic-notice" class="mic-notice" role="alert"></div>
 
       <div class="input-row">
         <div class="plea-input-container">
@@ -122,21 +127,22 @@
             rows="2"
             maxlength="280"
           ></textarea>
-          <!-- Dramatic Verdict Stamp (Slams directly over defendant's testimony text box) -->
-          <div id="verdict-stamp-container">
-            <div id="verdict-stamp" class="verdict-stamp">GUILTY</div>
-          </div>
         </div>
 
         <div class="action-btn-group">
           <button type="button" id="mic-btn" class="retro-btn">
-            <span>🎙️</span>
+            <span id="mic-icon">🎙️</span>
             <span id="mic-btn-text">VOICE PLEA</span>
           </button>
           <button type="button" id="submit-btn" class="retro-btn">
             <span>⚡</span>
             <span>SUBMIT PLEA</span>
           </button>
+
+          <!-- Dramatic Verdict Stamp (Covers the Voice and Submit Plea buttons) -->
+          <div id="verdict-stamp-container">
+            <div id="verdict-stamp" class="verdict-stamp">GUILTY</div>
+          </div>
         </div>
       </div>
 
