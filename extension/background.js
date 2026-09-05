@@ -119,31 +119,55 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "REVIVE_TAB" && message.url) {
     try {
-      // Punish the user: revive the closed page as a pinned tab in the background without stealing focus
-      const createOptions = {
-        url: message.url,
-        pinned: true,
-        active: false // Do not redirect or steal focus from the courtroom
-      };
-      if (sender?.tab?.windowId !== undefined) {
-        createOptions.windowId = sender.tab.windowId;
-      }
+      const courtTabId = message.courtTabId || sender?.tab?.id;
+      const courtWindowId = message.courtWindowId || sender?.tab?.windowId;
 
-      chrome.tabs.create(createOptions, (newTab) => {
-        if (chrome.runtime.lastError) {
-          console.warn("[Tab Courtroom] Tab revival failed:", chrome.runtime.lastError.message);
-          sendResponse({ status: "error", error: chrome.runtime.lastError.message });
-        } else {
-          // Explicitly ensure courtroom tab retains active focus
-          if (sender?.tab?.id) {
-            chrome.tabs.update(sender.tab.id, { active: true }, () => {
-              if (chrome.runtime.lastError) {
-                // Ignore if tab already closed/active
-              }
-            });
-          }
-          sendResponse({ status: "tab_resurrected", tabId: newTab ? newTab.id : null });
+      // Find the normal tab window (non-court window) or target window to place the resurrected tab
+      chrome.windows.getAll({ populate: false, windowTypes: ['normal'] }, (allWindows) => {
+        let targetWindowId = null;
+        if (allWindows && allWindows.length > 0) {
+          // If a court window was specified, place the tab in the other browser window
+          const otherWin = allWindows.find(w => w.id !== courtWindowId);
+          targetWindowId = otherWin ? otherWin.id : (courtWindowId || allWindows[0].id);
         }
+
+        const createOptions = {
+          url: message.url,
+          pinned: true,
+          active: false // Explicitly open in background without activating
+        };
+        if (targetWindowId !== null) {
+          createOptions.windowId = targetWindowId;
+        }
+
+        chrome.tabs.create(createOptions, (newTab) => {
+          if (chrome.runtime.lastError) {
+            console.warn("[Tab Courtroom] Tab revival failed:", chrome.runtime.lastError.message);
+            sendResponse({ status: "error", error: chrome.runtime.lastError.message });
+            return;
+          }
+
+          // Force the new tab to remain inactive
+          if (newTab && newTab.id) {
+            chrome.tabs.update(newTab.id, { active: false }).catch(() => {});
+          }
+
+          // Relentlessly lock focus on the courtroom tab and courtroom window
+          const retainCourtFocus = () => {
+            if (courtTabId) {
+              chrome.tabs.update(courtTabId, { active: true }).catch(() => {});
+            }
+            if (courtWindowId) {
+              chrome.windows.update(courtWindowId, { focused: true }).catch(() => {});
+            }
+          };
+
+          retainCourtFocus();
+          setTimeout(retainCourtFocus, 50);
+          setTimeout(retainCourtFocus, 250);
+
+          sendResponse({ status: "tab_resurrected", tabId: newTab ? newTab.id : null });
+        });
       });
     } catch (err) {
       console.warn("[Tab Courtroom] Unexpected error during tab revival:", err);

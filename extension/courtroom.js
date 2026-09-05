@@ -536,15 +536,39 @@ function handleVerdict(data) {
       DOM.resurrectAlert.style.display = 'block';
     }
 
-    // Trigger Chrome Extension tab resurrection (if running inside extension)
+    // Trigger Chrome Extension tab resurrection in background without stealing court focus
     if (window.chrome && chrome.runtime && chrome.runtime.sendMessage) {
-      chrome.runtime.sendMessage({ action: "REVIVE_TAB", url: STATE.accusedUrl }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.warn("[Tab Courtroom] Tab revival message error:", chrome.runtime.lastError.message);
-        } else {
-          console.log("[Tab Courtroom] Tab revived:", response);
+      setTimeout(() => {
+        try {
+          if (chrome.tabs && chrome.tabs.getCurrent) {
+            chrome.tabs.getCurrent((currentTab) => {
+              const tabId = currentTab ? currentTab.id : null;
+              const winId = currentTab ? currentTab.windowId : null;
+
+              chrome.runtime.sendMessage({
+                action: "REVIVE_TAB",
+                url: STATE.accusedUrl,
+                courtTabId: tabId,
+                courtWindowId: winId
+              }, (response) => {
+                if (chrome.runtime.lastError) {
+                  console.warn("[Tab Courtroom] Tab revival message error:", chrome.runtime.lastError.message);
+                } else {
+                  console.log("[Tab Courtroom] Tab revived in background:", response);
+                }
+                window.focus();
+                if (winId && chrome.windows) {
+                  chrome.windows.update(winId, { focused: true }).catch(() => {});
+                }
+              });
+            });
+          } else {
+            chrome.runtime.sendMessage({ action: "REVIVE_TAB", url: STATE.accusedUrl });
+          }
+        } catch (e) {
+          console.warn("[Tab Courtroom] Tab revival dispatch error:", e);
         }
-      });
+      }, 500);
     }
 
     // Type dramatic verdict speech
