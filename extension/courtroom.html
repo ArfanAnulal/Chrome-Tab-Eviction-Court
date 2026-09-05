@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Tab Courtroom (Test Rig)</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 24px;
+            background: #111;
+            color: #00ff66;
+        }
+        button, a.btn {
+            display: inline-block;
+            padding: 8px 16px;
+            font-size: 14px;
+            margin-top: 10px;
+            cursor: pointer;
+            background: #222;
+            color: #00ff66;
+            border: 1px solid #00ff66;
+            text-decoration: none;
+        }
+        button:hover, a.btn:hover {
+            background: #00ff66;
+            color: #111;
+        }
+        input {
+            width: 400px;
+            padding: 6px;
+            background: #222;
+            color: #fff;
+            border: 1px solid #444;
+        }
+    </style>
+</head>
+<body>
+    <h1>Tab Eviction Court - In Session</h1>
+    <p><strong>Evicted URL:</strong> <span id="tab-url"></span></p>
+    <p><strong>Evicted Title:</strong> <span id="tab-title"></span></p>
+
+    <div>
+        <label>Your Plea:</label><br>
+        <input id="plea" value="I swear I was just researching for my project!" /><br>
+        <button id="submit-btn">Submit Plea to AI Judge</button>
+    </div>
+
+    <h2 id="verdict"></h2>
+    <p id="sentence"></p>
+    
+    <!-- PDF Download Anchor (hidden until verdict arrives) -->
+    <p><a id="pdf-btn" class="btn" style="display: none;" target="_blank">📄 Download Official Court Order (PDF)</a></p>
+
+    <script src="courtroom.js"></script>
+</body>
+</html>

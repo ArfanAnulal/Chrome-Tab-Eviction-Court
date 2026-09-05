@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Eviction Court",
+  "version": "1.0",
+  "description": "Puts closed tabs on trial before a retro AI judge.",
+  "permissions": [
+    "tabs",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
