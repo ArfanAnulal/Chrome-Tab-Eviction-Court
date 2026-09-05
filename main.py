@@ -2,11 +2,12 @@ import html
 import io
 import json
 import math
+import re
 import urllib.parse
 import uuid
 from datetime import datetime
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -595,14 +596,76 @@ def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
     buffer.seek(0)
     return buffer.getvalue()
 
+DEFAULT_OFFLINE_RULING = {
+    "verdict": "GUILTY",
+    "sentence": "The Honorable Magistrate Bit-Shift's neural link severed due to pure disbelief at your plea. By default rule of court, you stand convicted of digital contempt!",
+    "confidence": 0.50,
+}
+
+def parse_or_recover_verdict(raw_response: str) -> dict:
+    """Parses Ollama output with recovery for markdown fences, conversational prefixes, and malformed JSON."""
+    if not raw_response or not raw_response.strip():
+        return DEFAULT_OFFLINE_RULING.copy()
+
+    cleaned = raw_response.strip()
+    # Strip markdown code blocks (e.g. ```json ... ``` or ``` ...)
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    # 1. Try standard JSON parse
+    try:
+        data = json.loads(cleaned)
+        if isinstance(data, dict) and "verdict" in data:
+            return {
+                "verdict": str(data.get("verdict", "GUILTY")).strip().upper(),
+                "sentence": str(data.get("sentence", DEFAULT_OFFLINE_RULING["sentence"])).strip(),
+                "confidence": float(data.get("confidence", 0.95)),
+            }
+    except Exception:
+        pass
+
+    # 2. Try extracting JSON object substring
+    match = re.search(r"\{.*?\}", cleaned, re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(0))
+            if isinstance(data, dict) and "verdict" in data:
+                return {
+                    "verdict": str(data.get("verdict", "GUILTY")).strip().upper(),
+                    "sentence": str(data.get("sentence", DEFAULT_OFFLINE_RULING["sentence"])).strip(),
+                    "confidence": float(data.get("confidence", 0.85)),
+                }
+        except Exception:
+            pass
+
+    # 3. Heuristic text recovery fallback
+    upper_text = cleaned.upper()
+    if "INNOCENT" in upper_text and "GUILTY" not in upper_text:
+        verdict = "INNOCENT"
+    else:
+        verdict = "GUILTY"
+
+    sentence = re.sub(r"\s+", " ", cleaned).strip()
+    if len(sentence) > 180:
+        sentence = sentence[:177] + "..."
+    if not sentence:
+        sentence = DEFAULT_OFFLINE_RULING["sentence"]
+
+    return {
+        "verdict": verdict,
+        "sentence": sentence,
+        "confidence": 0.65,
+    }
+
 @app.post("/judge")
-def judge_case(case: CasePayload):
+def judge_case(case: CasePayload, background_tasks: BackgroundTasks):
     prompt = (
         f"Tab Title: {case.tab_title}\n"
         f"Tab URL: {case.tab_url}\n"
         f"User Plea: {case.plea_text}\n"
     )
 
+    verdict_data = None
     try:
         res = requests.post(
             "http://127.0.0.1:11434/api/generate",
@@ -613,13 +676,14 @@ def judge_case(case: CasePayload):
                 "format": "json",
                 "stream": False,
             },
-            timeout=30,
+            timeout=6,
         )
         res.raise_for_status()
-        raw_response = res.json().get("response", "{}")
-        verdict_data = json.loads(raw_response)
+        raw_response = res.json().get("response", "")
+        verdict_data = parse_or_recover_verdict(raw_response)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ollama inference error: {str(e)}")
+        print(f"[Judge Inference Warning]: Ollama connection/inference error: {e}. Utilizing offline fallback.")
+        verdict_data = DEFAULT_OFFLINE_RULING.copy()
 
     case_id = str(uuid.uuid4())
     record = {
@@ -627,21 +691,22 @@ def judge_case(case: CasePayload):
         "tab_title": case.tab_title,
         "tab_url": case.tab_url,
         "plea_text": case.plea_text,
-        "verdict": verdict_data.get("verdict", "UNKNOWN"),
-        "sentence": verdict_data.get("sentence", "No statement."),
-        "confidence": verdict_data.get("confidence", 0.95),
+        "verdict": verdict_data.get("verdict", "GUILTY"),
+        "sentence": verdict_data.get("sentence", DEFAULT_OFFLINE_RULING["sentence"]),
+        "confidence": verdict_data.get("confidence", 0.50),
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC"),
     }
     CASE_ARCHIVE[case_id] = record
 
-    # Fire Discord log
-    send_discord_log(
+    # Non-blocking Discord log dispatched in the background
+    background_tasks.add_task(
+        send_discord_log,
         case_id=case_id,
         title=record["tab_title"],
         url=record["tab_url"],
         plea=record["plea_text"],
         verdict=record["verdict"],
-        sentence=record["sentence"]
+        sentence=record["sentence"],
     )
 
     return {
@@ -649,7 +714,7 @@ def judge_case(case: CasePayload):
         "sentence": record["sentence"],
         "confidence": record["confidence"],
         "case_id": case_id,
-        "pdf_download_url": f"http://127.0.0.1:8000/order/{case_id}.pdf"
+        "pdf_download_url": f"http://127.0.0.1:8000/order/{case_id}.pdf",
     }
 
 @app.get("/order/{case_id}.pdf")
