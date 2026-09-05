@@ -1,6 +1,10 @@
+import html
 import io
 import json
+import math
+import urllib.parse
 import uuid
+from datetime import datetime
 import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,9 +12,11 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 # ReportLab PDF Generator Imports
+from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
-from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import Paragraph
 
 app = FastAPI(title="Tab Courtroom Judge Backend")
 
@@ -34,13 +40,25 @@ class CasePayload(BaseModel):
     tab_title: str
     plea_text: str
 
-SYSTEM_PROMPT = """You are a ruthless, witty retro courtroom judge deciding if a user is guilty of procrastination or justified in closing their tab.
+SYSTEM_PROMPT = """You are "The Honorable Magistrate Bit-Shift", a theatrical, ruthlessly sarcastic, 16-bit retro arcade courtroom judge presiding over the High Court of Productivity Eviction.
 
-Respond ONLY with valid JSON matching this schema:
+### YOUR PERSONA & LORE:
+- You treat closing browser tabs as capital offenses against focus, digital hoarding, or unforgivable acts of procrastination.
+- You speak like an over-the-top, dramatized courtroom character (mixing legal jargon like "objection!", "contempt of court!", "habeas corpus", with absurd internet slang).
+- If the closed tab was educational or productivity-related (docs, repos, research, Wikipedia) and the plea is weak: Rule GUILTY for abandoning duties.
+- If the closed tab was social media, memes, or entertainment (YouTube, Reddit, Twitter, TikTok): Rule GUILTY for slacking off in the first place, OR rule INNOCENT only if their plea proves they are finally returning to honest work.
+- Keep the sentence punchy, biting, and comedic (maximum 2 sentences).
+
+### CRITICAL OUTPUT INSTRUCTIONS:
+- You must reply ONLY with a single, valid JSON object.
+- Never include markdown code blocks (no ```json).
+- Never add commentary outside the JSON.
+
+### JSON SCHEMA:
 {
-  "verdict": "GUILTY" or "INNOCENT",
-  "sentence": "1-2 comedic, harsh, or forgiving sentences of judgment",
-  "confidence": 0.95
+  "verdict": "GUILTY" | "INNOCENT",
+  "sentence": "1-2 punchy, highly theatrical sentences delivering your ruling.",
+  "confidence": 0.98
 }
 """
 
@@ -67,63 +85,511 @@ def send_discord_log(case_id: str, title: str, url: str, plea: str, verdict: str
     except Exception as e:
         print(f"[Discord Webhook Error]: {e}")
 
+def draw_corner_ornament(c, x, y, dx, dy, size=14):
+    """Draws a clean, vintage legal corner motif."""
+    c.saveState()
+    oc = colors.HexColor("#3D2E1E")
+    c.setStrokeColor(oc)
+    c.setFillColor(oc)
+    c.setLineWidth(1)
+    # L-bracket
+    c.line(x, y, x + dx * size, y)
+    c.line(x, y, x, y + dy * size)
+    # Inner accent square
+    c.rect(x + dx * 3, y + dy * 3, dx * 4, dy * 4, fill=1, stroke=0)
+    # Small corner tick
+    c.line(x + dx * 9, y, x + dx * 9, y + dy * 3)
+    c.line(x, y + dy * 9, x + dx * 3, y + dy * 9)
+    c.restoreState()
+
+def draw_vector_scales(c, cx, cy, size=13, color="#6B5238"):
+    """Draws crisp vector scales of justice."""
+    c.saveState()
+    sc = colors.HexColor(color) if isinstance(color, str) else color
+    c.setStrokeColor(sc)
+    c.setFillColor(sc)
+    c.setLineWidth(1.0)
+
+    # Base stand
+    c.line(cx - size * 0.45, cy - size * 0.55, cx + size * 0.45, cy - size * 0.55)
+    c.rect(cx - size * 0.2, cy - size * 0.55, size * 0.4, size * 0.08, fill=1, stroke=0)
+
+    # Center pillar
+    c.line(cx, cy - size * 0.55, cx, cy + size * 0.55)
+    c.circle(cx, cy + size * 0.58, 1.8, fill=1, stroke=0)
+
+    # Crossbeam
+    c.setLineWidth(1.2)
+    c.line(cx - size * 0.8, cy + size * 0.4, cx + size * 0.8, cy + size * 0.4)
+
+    # Left pan strings & dish
+    c.setLineWidth(0.65)
+    c.line(cx - size * 0.8, cy + size * 0.4, cx - size * 1.05, cy + size * 0.05)
+    c.line(cx - size * 0.8, cy + size * 0.4, cx - size * 0.55, cy + size * 0.05)
+    p_l = c.beginPath()
+    p_l.moveTo(cx - size * 1.15, cy + size * 0.05)
+    p_l.curveTo(cx - size * 1.15, cy - size * 0.2, cx - size * 0.45, cy - size * 0.2, cx - size * 0.45, cy + size * 0.05)
+    c.drawPath(p_l, fill=0, stroke=1)
+
+    # Right pan strings & dish
+    c.line(cx + size * 0.8, cy + size * 0.4, cx + size * 0.55, cy + size * 0.05)
+    c.line(cx + size * 0.8, cy + size * 0.4, cx + size * 1.05, cy + size * 0.05)
+    p_r = c.beginPath()
+    p_r.moveTo(cx + size * 0.45, cy + size * 0.05)
+    p_r.curveTo(cx + size * 0.45, cy - size * 0.2, cx + size * 1.15, cy - size * 0.2, cx + size * 1.15, cy + size * 0.05)
+    c.drawPath(p_r, fill=0, stroke=1)
+
+    c.restoreState()
+
+def draw_star(c, cx, cy, r_out=5, r_in=2.2, fill_color="#7A5F43"):
+    """Draws a 5-point vector star."""
+    c.saveState()
+    p = c.beginPath()
+    for i in range(10):
+        angle = i * math.pi / 5 - math.pi / 2
+        r = r_out if i % 2 == 0 else r_in
+        x = cx + r * math.cos(angle)
+        y = cy - r * math.sin(angle)
+        if i == 0:
+            p.moveTo(x, y)
+        else:
+            p.lineTo(x, y)
+    p.close()
+    fc = colors.HexColor(fill_color) if isinstance(fill_color, str) else fill_color
+    c.setFillColor(fc)
+    c.drawPath(p, fill=1, stroke=0)
+    c.restoreState()
+
+def draw_official_seal(c, cx, cy, radius=23):
+    """Draws an authentic ornate judicial seal in vector."""
+    c.saveState()
+    seal_color = colors.HexColor("#7A5F43")
+    c.setStrokeColor(seal_color)
+    c.setFillColor(seal_color)
+
+    # Outer double circle
+    c.setLineWidth(1.4)
+    c.circle(cx, cy, radius, fill=0, stroke=1)
+    c.setLineWidth(0.6)
+    c.circle(cx, cy, radius - 2.5, fill=0, stroke=1)
+
+    # Dashed inner ring
+    c.setLineWidth(0.6)
+    c.setDash(2, 2)
+    c.circle(cx, cy, radius - 5, fill=0, stroke=1)
+    c.setDash()
+
+    # Center scales
+    draw_vector_scales(c, cx, cy - 1, size=10, color="#7A5F43")
+
+    # Clean text inside seal
+    c.setFont("Helvetica-Bold", 4.2)
+    c.drawCentredString(cx, cy + 12, "HIGH COURT")
+    c.drawCentredString(cx, cy - 15, "OFFICIAL SEAL")
+
+    # Small decorative stars left & right
+    draw_star(c, cx - 13, cy, r_out=2.2, r_in=1.0, fill_color="#7A5F43")
+    draw_star(c, cx + 13, cy, r_out=2.2, r_in=1.0, fill_color="#7A5F43")
+    c.restoreState()
+
+def draw_barcode(c, x, y, width=155, height=10):
+    """Draws a retro legal barcode strip."""
+    c.saveState()
+    c.setFillColor(colors.HexColor("#2C241D"))
+    bars = [1, 2, 1, 3, 1, 1, 2, 4, 1, 2, 1, 3, 2, 1, 1, 3, 1, 2, 1, 4, 2, 1, 3, 1, 1, 2, 1, 3, 1, 1, 2, 4, 1, 2, 1, 3, 2, 1]
+    total_units = sum(bars)
+    scale = width / total_units
+    cur_x = x
+    for i, b in enumerate(bars):
+        w = b * scale
+        if i % 2 == 0:
+            c.rect(cur_x, y, w, height, fill=1, stroke=0)
+        cur_x += w
+    c.restoreState()
+
 def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
+    width, height = letter  # 612 x 792 pt
 
-    # Retro Document Border
-    c.setLineWidth(3)
-    c.setStrokeColor(colors.black)
-    c.rect(36, 36, width - 72, height - 72)
-    c.setLineWidth(1)
-    c.rect(42, 42, width - 84, height - 84)
+    # -------------------------------------------------------------
+    # 1. PARCHMENT / RETRO PAPER AESTHETIC
+    # -------------------------------------------------------------
+    # Subtle aged background tint
+    c.setFillColor(colors.HexColor("#FAF7EE"))
+    c.rect(0, 0, width, height, fill=1, stroke=0)
 
-    # Header
-    c.setFont("Helvetica-Bold", 22)
-    c.drawCentredString(width / 2.0, height - 90, "HIGH COURT OF PRODUCTIVITY EVICTION")
-    c.setFont("Helvetica-Oblique", 11)
-    c.drawCentredString(width / 2.0, height - 110, "OFFICIAL WARRANT & SUMMONS OF CONTEMPT")
+    # Double-line ornate framing
+    # Outer bold border
+    c.setLineWidth(2.5)
+    c.setStrokeColor(colors.HexColor("#1A1A1A"))
+    c.rect(26, 26, width - 52, height - 52, fill=0, stroke=1)
 
-    # Metadata Line
+    # Inner thin border
+    c.setLineWidth(0.75)
+    c.setStrokeColor(colors.HexColor("#4A3B2C"))
+    c.rect(32, 32, width - 64, height - 64, fill=0, stroke=1)
+
+    # Corner ornaments
+    draw_corner_ornament(c, 34, 34, 1, 1)
+    draw_corner_ornament(c, width - 34, 34, -1, 1)
+    draw_corner_ornament(c, 34, height - 34, 1, -1)
+    draw_corner_ornament(c, width - 34, height - 34, -1, -1)
+
+    # Content margins
+    left_x = 48
+    content_w = width - 96  # 516 pt
+
+    # -------------------------------------------------------------
+    # 2. OFFICIAL JUDICIAL LETTERHEAD
+    # -------------------------------------------------------------
+    # Jurisdiction Lore Banner
+    c.setFont("Helvetica-Bold", 7.5)
+    c.setFillColor(colors.HexColor("#6E5A44"))
+    c.drawCentredString(width / 2.0, height - 52, "JURISDICTION OF CHROMIUM RUNTIME  •  TRIBUNAL OF RUNAWAY TABS")
+    draw_star(c, (width / 2.0) - 170, height - 50, r_out=3.2, r_in=1.4, fill_color="#6E5A44")
+    draw_star(c, (width / 2.0) + 170, height - 50, r_out=3.2, r_in=1.4, fill_color="#6E5A44")
+
+    # Grand Title
+    c.setFont("Helvetica-Bold", 16.5)
+    c.setFillColor(colors.HexColor("#141414"))
+    c.drawCentredString(width / 2.0, height - 72, "IN THE SUPREME COURT OF PRODUCTIVITY EVICTION")
+
+    # Chambers Subtitle
+    c.setFont("Helvetica-Bold", 11)
+    c.setFillColor(colors.HexColor("#4A3525"))
+    c.drawCentredString(width / 2.0, height - 89, "CHAMBERS OF THE HONORABLE MAGISTRATE BIT-SHIFT")
+
+    # Absurd Latin lore / motto
+    c.setFont("Times-Italic", 8.5)
+    c.setFillColor(colors.HexColor("#786550"))
+    c.drawCentredString(width / 2.0, height - 103, "« NIL AD PRO ET NIHIL AD REM — IN ABSENTIA TABULAE »")
+
+    # Warrant Type Banner
+    c.setFont("Helvetica-Bold", 9)
+    c.setFillColor(colors.HexColor("#8B1E1E"))
+    c.drawCentredString(width / 2.0, height - 117, "OFFICIAL WARRANT OF EVICTION & WRIT OF DIGITAL CONTEMPT")
+
+    # Ornate double rule divider
+    c.setLineWidth(1.4)
+    c.setStrokeColor(colors.HexColor("#1A1A1A"))
+    c.line(left_x, height - 125, left_x + content_w, height - 125)
     c.setLineWidth(0.5)
-    c.line(60, height - 125, width - 60, height - 125)
-    c.setFont("Courier", 10)
-    c.drawString(60, height - 145, f"CASE NUMBER : EVICT-{case_id[:8].upper()}")
-    c.drawString(60, height - 160, f"DEFENDANT   : ACTIVE BROWSER USER")
-    c.drawString(60, height - 175, f"EVICTED TAB : {case_data['tab_title'][:55]}")
-    c.drawString(60, height - 190, f"TARGET URL  : {case_data['tab_url'][:55]}")
+    c.setStrokeColor(colors.HexColor("#8C7D70"))
+    c.line(left_x, height - 127.5, left_x + content_w, height - 127.5)
 
-    # Charge & Plea
-    c.line(60, height - 205, width - 60, height - 205)
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(60, height - 230, "DEFENDANT PLEA / TESTIMONY:")
-    c.setFont("Helvetica-Oblique", 10)
-    c.drawString(70, height - 250, f"\"{case_data['plea_text'][:75]}\"")
+    # -------------------------------------------------------------
+    # CASE METADATA HEADER GRID
+    # -------------------------------------------------------------
+    grid_y = height - 198
+    grid_h = 62
+    c.setFillColor(colors.HexColor("#F2ECE1"))
+    c.setStrokeColor(colors.HexColor("#9C8D80"))
+    c.setLineWidth(0.75)
+    c.rect(left_x, grid_y, content_w, grid_h, fill=1, stroke=1)
 
-    # Verdict Box
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(60, height - 290, "FINAL JUDICIAL RULING:")
-    
-    verdict = case_data['verdict'].upper()
-    if "GUILTY" in verdict:
-        c.setFillColor(colors.HexColor("#cc0000"))
-    else:
-        c.setFillColor(colors.HexColor("#008800"))
-    c.setFont("Helvetica-Bold", 26)
-    c.drawString(60, height - 325, f">> {verdict} <<")
+    # Dividing line in grid
+    c.line(left_x + (content_w / 2.0), grid_y, left_x + (content_w / 2.0), grid_y + grid_h)
 
-    # Sentence
-    c.setFillColor(colors.black)
-    c.setFont("Helvetica", 11)
-    c.drawString(60, height - 360, "OFFICIAL REASONING & PENALTY:")
-    c.setFont("Courier", 10)
-    c.drawString(70, height - 380, case_data['sentence'][:75])
+    # Parse metadata
+    tab_url = case_data.get("tab_url", "about:blank")
+    tab_title = case_data.get("tab_title", "Untitled Tab")
+    plea_text = case_data.get("plea_text", "No plea entered.")
+    verdict = case_data.get("verdict", "UNKNOWN").upper()
+    sentence = case_data.get("sentence", "No judicial statement rendered.")
+    confidence = float(case_data.get("confidence", 0.95))
 
-    # Sarcastic Stamp
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(60, 80, "BY ORDER OF: Ollama Llama-3.2:3b Chief Justice")
-    c.drawString(60, 65, "STATUS     : BINDING IN ALL JURISDICTIONS")
+    parsed_url = urllib.parse.urlparse(tab_url)
+    domain_display = parsed_url.netloc if parsed_url.netloc else (parsed_url.path[:32] or "LOCAL BROWSER PAGE")
+    timestamp_str = case_data.get("timestamp") or datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+    is_guilty = "GUILTY" in verdict
+
+    status_str = "IN DIGITAL CONTEMPT" if is_guilty else "PARDONED / CLEARED"
+    status_color = colors.HexColor("#8B1E1E") if is_guilty else colors.HexColor("#006622")
+
+    # Grid items Left
+    c.setFont("Helvetica-Bold", 7.5)
+    c.setFillColor(colors.HexColor("#5A4A3C"))
+    c.drawString(left_x + 10, grid_y + 45, "CASE DOCKET ID:")
+    c.setFont("Courier-Bold", 8.5)
+    c.setFillColor(colors.HexColor("#1A1A1A"))
+    c.drawString(left_x + 95, grid_y + 45, f"EVICT-{case_id[:8].upper()}")
+
+    c.setFont("Helvetica-Bold", 7.5)
+    c.setFillColor(colors.HexColor("#5A4A3C"))
+    c.drawString(left_x + 10, grid_y + 27, "DEFENDANT:")
+    c.setFont("Courier-Bold", 8.5)
+    c.setFillColor(colors.HexColor("#1A1A1A"))
+    c.drawString(left_x + 95, grid_y + 27, "ACTIVE BROWSER USER (SESSION 01)")
+
+    c.setFont("Helvetica-Bold", 7.5)
+    c.setFillColor(colors.HexColor("#5A4A3C"))
+    c.drawString(left_x + 10, grid_y + 9, "TARGET DOMAIN:")
+    c.setFont("Courier-Bold", 8.5)
+    c.setFillColor(colors.HexColor("#1A1A1A"))
+    c.drawString(left_x + 95, grid_y + 9, domain_display[:30])
+
+    # Grid items Right
+    col2_x = left_x + (content_w / 2.0) + 12
+    c.setFont("Helvetica-Bold", 7.5)
+    c.setFillColor(colors.HexColor("#5A4A3C"))
+    c.drawString(col2_x, grid_y + 45, "DOCKET FILED:")
+    c.setFont("Courier-Bold", 8.5)
+    c.setFillColor(colors.HexColor("#1A1A1A"))
+    c.drawString(col2_x + 85, grid_y + 45, timestamp_str)
+
+    c.setFont("Helvetica-Bold", 7.5)
+    c.setFillColor(colors.HexColor("#5A4A3C"))
+    c.drawString(col2_x, grid_y + 27, "JURISDICTION:")
+    c.setFont("Courier-Bold", 8.5)
+    c.setFillColor(colors.HexColor("#1A1A1A"))
+    c.drawString(col2_x + 85, grid_y + 27, "DIV. OF PROCRASTINATION")
+
+    c.setFont("Helvetica-Bold", 7.5)
+    c.setFillColor(colors.HexColor("#5A4A3C"))
+    c.drawString(col2_x, grid_y + 9, "BENCH STATUS:")
+    c.setFont("Courier-Bold", 8.5)
+    c.setFillColor(status_color)
+    c.drawString(col2_x + 85, grid_y + 9, status_str)
+
+    # -------------------------------------------------------------
+    # 3. STYLED TYPOGRAPHY & SECTIONS
+    # -------------------------------------------------------------
+    styles = getSampleStyleSheet()
+
+    def draw_section_header(title_text, y_pos):
+        c.setFont("Helvetica-Bold", 9.5)
+        c.setFillColor(colors.HexColor("#1A1A1A"))
+        c.drawString(left_x, y_pos, title_text)
+        c.setLineWidth(0.6)
+        c.setStrokeColor(colors.HexColor("#9C8D80"))
+        c.line(left_x, y_pos - 4, left_x + content_w, y_pos - 4)
+
+    cur_y = grid_y - 20
+
+    # SECTION I: COUNT I
+    draw_section_header("COUNT I: UNLAWFUL EVICTION & NEGLECT OF DUTY", cur_y)
+    cur_y -= 16
+
+    # Tab Title Paragraph
+    title_style = ParagraphStyle(
+        'TabTitleStyle',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=9,
+        leading=12.5,
+        textColor=colors.HexColor("#1A1A1A")
+    )
+    title_p = Paragraph(f"<b>EVICTED TAB EXHIBIT:</b> {html.escape(tab_title)}", title_style)
+    tw, th = title_p.wrap(content_w, 36)
+    title_p.drawOn(c, left_x, cur_y - th)
+    cur_y -= (th + 5)
+
+    # URL Paragraph with CJK wordWrap
+    url_style = ParagraphStyle(
+        'TabUrlStyle',
+        parent=styles['Normal'],
+        fontName='Courier',
+        fontSize=7.8,
+        leading=10,
+        textColor=colors.HexColor("#1C324B"),
+        wordWrap='CJK'
+    )
+    url_p = Paragraph(f"<b>TARGET URL / EVIDENCE:</b> {html.escape(tab_url)}", url_style)
+    uw, uh = url_p.wrap(content_w, 40)
+    url_p.drawOn(c, left_x, cur_y - uh)
+    cur_y -= (uh + 18)
+
+    # SECTION II: DEFENDANT TESTIMONY
+    draw_section_header("STATEMENT & TESTIMONY OF THE DEFENDANT", cur_y)
+    cur_y -= 14
+
+    plea_style = ParagraphStyle(
+        'PleaStyle',
+        parent=styles['Normal'],
+        fontName='Times-Italic',
+        fontSize=9.5,
+        leading=13.5,
+        textColor=colors.HexColor("#2C241D")
+    )
+    plea_p = Paragraph(f"“{html.escape(plea_text)}”", plea_style)
+    pw, ph = plea_p.wrap(content_w - 24, 70)
+
+    box_pad = 7
+    box_h = ph + (box_pad * 2)
+    # Background callout
+    c.setFillColor(colors.HexColor("#EDE5D6"))
+    c.setStrokeColor(colors.HexColor("#D1C5B4"))
+    c.setLineWidth(0.5)
+    c.rect(left_x, cur_y - box_h, content_w, box_h, fill=1, stroke=1)
+
+    # Left accent border
+    c.setFillColor(colors.HexColor("#7A5F43"))
+    c.rect(left_x, cur_y - box_h, 4, box_h, fill=1, stroke=0)
+
+    plea_p.drawOn(c, left_x + 14, cur_y - box_h + box_pad)
+    cur_y -= (box_h + 20)
+
+    # SECTION III: ADJUDICATION & FORMAL SENTENCE
+    draw_section_header("ADJUDICATION & FORMAL SENTENCE OF THE COURT", cur_y)
+    cur_y -= 16
+
+    sentence_style = ParagraphStyle(
+        'SentenceStyle',
+        parent=styles['Normal'],
+        fontName='Times-Roman',
+        fontSize=10,
+        leading=14.5,
+        textColor=colors.HexColor("#141414")
+    )
+    sentence_p = Paragraph(f"<b>MAGISTRATE'S BENCH OPINION:</b> {html.escape(sentence)}", sentence_style)
+    sw, sh = sentence_p.wrap(content_w, 90)
+    sentence_p.drawOn(c, left_x, cur_y - sh)
+    cur_y -= (sh + 8)
+
+    # Confidence and Legal Citation
+    c.setFont("Courier-Oblique", 7.5)
+    c.setFillColor(colors.HexColor("#5A4A3C"))
+    c.drawString(
+        left_x,
+        cur_y,
+        f"Judicial Certainty Index: {confidence * 100:.1f}%  |  Legal Precedent: Section 404-B (\"The Idle Tab Doctrine\")"
+    )
+    cur_y -= 16
+
+    # Formal Adjudication Decree Box (Left Column)
+    decree_box_h = 44
+    decree_box_w = content_w * 0.55
+    c.setFillColor(colors.HexColor("#F0EAE0"))
+    c.setStrokeColor(colors.HexColor("#C0B2A0"))
+    c.setLineWidth(0.6)
+    c.rect(left_x, cur_y - decree_box_h, decree_box_w, decree_box_h, fill=1, stroke=1)
+
+    # Inner decree summary
+    c.setFont("Helvetica-Bold", 7.5)
+    c.setFillColor(colors.HexColor("#5A4A3C"))
+    c.drawString(left_x + 8, cur_y - 14, "FORMAL BENCH DECREE:")
+
+    c.setFont("Helvetica-Bold", 11.5)
+    c.setFillColor(status_color)
+    ruling_title = ">> CONVICTED IN CONTEMPT <<" if is_guilty else ">> FULL REMISSION GRANTED <<"
+    c.drawString(left_x + 8, cur_y - 27, ruling_title)
+
+    c.setFont("Helvetica", 7.5)
+    c.setFillColor(colors.HexColor("#2C241D"))
+    penalty_desc = "Penalty: Tab Resurrection as Pinned Tab" if is_guilty else "Order: Tab Closure Lawfully Discharged"
+    c.drawString(left_x + 8, cur_y - 38, penalty_desc)
+
+    # -------------------------------------------------------------
+    # 4. ANGLED RUBBER STAMP EFFECT
+    # -------------------------------------------------------------
+    # Placed in the right-side area of the decree block
+    c.saveState()
+    stamp_x = left_x + (content_w * 0.79)
+    stamp_y = cur_y - (decree_box_h / 2.0) - 2
+    stamp_angle = 13 if is_guilty else -11
+    c.translate(stamp_x, stamp_y)
+    c.rotate(stamp_angle)
+
+    stamp_color = colors.HexColor("#B30000") if is_guilty else colors.HexColor("#006622")
+    stamp_w = 176
+    stamp_h = 56
+    w_half = stamp_w / 2.0
+    h_half = stamp_h / 2.0
+
+    c.setStrokeColor(stamp_color)
+    c.setFillColor(stamp_color)
+    # Outer rounded rect
+    c.setLineWidth(2.2)
+    c.roundRect(-w_half, -h_half, stamp_w, stamp_h, 5, fill=0, stroke=1)
+    # Inner thin rect
+    c.setLineWidth(0.8)
+    c.roundRect(-w_half + 3.2, -h_half + 3.2, stamp_w - 6.4, stamp_h - 6.4, 3, fill=0, stroke=1)
+
+    # Stamp Text
+    c.setFont("Helvetica-Bold", 6.5)
+    c.drawCentredString(0, 13.5, "* HIGH COURT OF EVICTION *")
+
+    c.setFont("Helvetica-Bold", 13.5)
+    main_text = "GUILTY AS CHARGED" if is_guilty else "PARDONED / CLEARED"
+    c.drawCentredString(0, -2, main_text)
+
+    c.setFont("Helvetica-Bold", 6.8)
+    sub_text = "CONTEMPT DECREE ISSUED" if is_guilty else "REMISSION OF GUILT GRANTED"
+    c.drawCentredString(0, -15.5, sub_text)
+
+    c.restoreState()
+
+    # -------------------------------------------------------------
+    # 5. OFFICIAL LEGAL FOOTERS & SIGNATURES
+    # -------------------------------------------------------------
+    sig_y = 112
+
+    # Attestation preamble line
+    c.setFont("Times-Italic", 8)
+    c.setFillColor(colors.HexColor("#6A5745"))
+    c.drawCentredString(
+        width / 2.0,
+        sig_y + 45,
+        "GIVEN under our hand and the official seal of this Court, enforceable across all active browser windows."
+    )
+    c.setLineWidth(0.4)
+    c.setStrokeColor(colors.HexColor("#C4B5A5"))
+    c.line(left_x + 30, sig_y + 39, width - left_x - 30, sig_y + 39)
+
+    # Official Seal in Center
+    draw_official_seal(c, width / 2.0, sig_y + 11, radius=23)
+
+    # Left: Bailiff Signature
+    c.setFont("Times-Italic", 12.5)
+    c.setFillColor(colors.HexColor("#1F3864"))
+    c.drawString(left_x + 8, sig_y + 16, "Attested by Discord Webhook Bailiff")
+
+    c.setLineWidth(0.8)
+    c.setStrokeColor(colors.HexColor("#444444"))
+    c.line(left_x, sig_y + 8, left_x + 190, sig_y + 8)
+
+    c.setFont("Helvetica-Bold", 7.5)
+    c.setFillColor(colors.HexColor("#222222"))
+    c.drawString(left_x, sig_y - 4, "ELECTRONIC SIGNATURE OF THE BAILIFF")
+    c.setFont("Courier", 6.5)
+    c.setFillColor(colors.HexColor("#666666"))
+    c.drawString(left_x, sig_y - 14, "Office of Discord Dispatcher & Tab Monitor")
+
+    # Right: Magistrate Bit-Shift Signature
+    sig_r_x = width - left_x - 190
+    c.setFont("Times-BoldItalic", 13)
+    c.setFillColor(colors.HexColor("#4A1515"))
+    c.drawString(sig_r_x + 10, sig_y + 16, "The Hon. Magistrate Bit-Shift, CJ.")
+
+    c.setLineWidth(0.8)
+    c.setStrokeColor(colors.HexColor("#444444"))
+    c.line(sig_r_x, sig_y + 8, sig_r_x + 190, sig_y + 8)
+
+    c.setFont("Helvetica-Bold", 7.5)
+    c.setFillColor(colors.HexColor("#222222"))
+    c.drawString(sig_r_x, sig_y - 4, "THE HONORABLE MAGISTRATE BIT-SHIFT")
+    c.setFont("Courier", 6.5)
+    c.setFillColor(colors.HexColor("#666666"))
+    c.drawString(sig_r_x, sig_y - 14, "Chief Justice, Ollama Llama 3.2:3b Tribunal")
+
+    # -------------------------------------------------------------
+    # 6. RETRO BARCODE & SERIAL STRIP
+    # -------------------------------------------------------------
+    barcode_y = 52
+    draw_barcode(c, left_x, barcode_y, width=155, height=10)
+    c.setFont("Courier", 6.8)
+    c.setFillColor(colors.HexColor("#5A4A3C"))
+    c.drawString(left_x + 168, barcode_y + 2, f"* EVICT-{case_id[:8].upper()}-DOCKET-DECREE-2026 *")
+
+    # Security Banner line at bottom
+    c.setFont("Helvetica", 6)
+    c.setFillColor(colors.HexColor("#7A6855"))
+    c.drawCentredString(
+        width / 2.0,
+        38,
+        "OFFICIAL INSTRUMENT OF RECORD • ENFORCEABLE PURSUANT TO SECTION 42 OF THE HIGH BROWSER CODE • ALL RIGHTS RESERVED"
+    )
 
     c.save()
     buffer.seek(0)
@@ -164,6 +630,7 @@ def judge_case(case: CasePayload):
         "verdict": verdict_data.get("verdict", "UNKNOWN"),
         "sentence": verdict_data.get("sentence", "No statement."),
         "confidence": verdict_data.get("confidence", 0.95),
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC"),
     }
     CASE_ARCHIVE[case_id] = record
 
