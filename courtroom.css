@@ -322,7 +322,7 @@ html, body {
 #judge-sprite {
   width: 520px;
   height: 390px;
-  max-height: 90%;
+  max-height: 98%;
   object-fit: contain;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
@@ -430,6 +430,31 @@ html, body {
   }
 }
 
+/* AUDIO UNLOCK TOAST BANNER */
+.audio-unlock-banner {
+  display: none; /* Shown dynamically if autoplay is blocked */
+  position: absolute;
+  top: 12px;
+  right: 140px;
+  background: rgba(240, 192, 64, 0.95);
+  color: #1a0f00;
+  border: 2px solid #000;
+  font-size: 8px;
+  padding: 4px 10px;
+  text-align: center;
+  letter-spacing: 0.5px;
+  font-weight: bold;
+  cursor: pointer;
+  z-index: 100;
+  box-shadow: 2px 2px 0 #000, 0 0 12px rgba(240, 192, 64, 0.6);
+  animation: audioPromptPulse 1.2s infinite alternate ease-in-out;
+}
+
+@keyframes audioPromptPulse {
+  0% { transform: scale(0.99); opacity: 0.85; }
+  100% { transform: scale(1.01); opacity: 1; }
+}
+
 /* --- 8. PHOENIX WRIGHT STYLE DIALOGUE BOX --- */
 #dialogue-container {
   position: relative;
@@ -443,6 +468,12 @@ html, body {
   min-height: 80px;
   margin-bottom: 6px;
   z-index: 10;
+  cursor: default;
+  transition: border-color 0.2s ease;
+}
+
+#dialogue-container.is-typing {
+  cursor: pointer;
 }
 
 .speaker-badge {
@@ -733,9 +764,10 @@ html, body {
 @media (max-height: 700px) {
   #stage-area {
     min-height: 180px;
+    max-height: 240px;
   }
   #judge-sprite {
-    max-height: 90%;
+    max-height: 195px;
   }
   #dialogue-text {
     font-size: 20px;

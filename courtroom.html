@@ -82,10 +82,15 @@
       📌 SANCTION ENFORCED: TAB HAS BEEN RESURRECTED & PINNED IN BROWSER FOR ETERNITY!
     </div>
 
+    <!-- AUDIO UNLOCK BANNER (Shows if browser blocks autoplay until user interaction) -->
+    <div id="audio-unlock-prompt" class="audio-unlock-banner" title="Click anywhere to enable 16-bit court audio">
+      🔊 CLICK ANYWHERE TO UNMUTE COURT AUDIO
+    </div>
+
     <!-- 3. PHOENIX WRIGHT STYLE DIALOGUE BOX -->
-    <section id="dialogue-container" aria-label="Courtroom Dialogue">
+    <section id="dialogue-container" aria-label="Courtroom Dialogue" title="Click to skip dialogue">
       <div class="speaker-badge" id="dialogue-speaker">THE COURT</div>
-      <div id="dialogue-text">Court is now in session! Defendant, you stand accused of UNAUTHORIZED TAB MURDER.<span class="typing-cursor"></span></div>
+      <div id="dialogue-text"><span id="dialogue-content">Court is now in session! Defendant, you stand accused of UNAUTHORIZED TAB MURDER.</span><span class="typing-cursor"></span></div>
       <div class="prompt-indicator" id="prompt-indicator" title="Awaiting Testimony">▼</div>
 
       <!-- DELIBERATION LOADING BANNER -->
