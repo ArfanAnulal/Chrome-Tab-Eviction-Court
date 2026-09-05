@@ -16,6 +16,13 @@
   <!-- CRT SCANLINES & BARREL VIGNETTE OVERLAY -->
   <div id="crt-overlay"></div>
 
+  <!-- FULLSCREEN GAVEL STRIKE CUTSCENE OVERLAY -->
+  <div id="gavel-cutscene" class="gavel-cutscene-overlay" aria-hidden="true">
+    <div class="gavel-cutscene-inner">
+      <img id="gavel-cutscene-img" src="assets/Judge_Gavel.gif" alt="Judge Gavel Slam Cutscene" draggable="false">
+    </div>
+  </div>
+
   <!-- MAIN COURTROOM CONTAINER -->
   <main id="courtroom-container">
 
@@ -53,11 +60,6 @@
         <div class="backdrop-pillars"></div>
         <!-- Layered Courtroom Artwork -->
         <img class="court-room-bg" src="assets/Court-Room.jpg" alt="Courtroom Chamber" draggable="false">
-      </div>
-
-      <!-- Dramatic Verdict Stamp (Hidden initially, slammed on ruling) -->
-      <div id="verdict-stamp-container">
-        <div id="verdict-stamp" class="verdict-stamp">GUILTY</div>
       </div>
 
       <!-- Judge Animated Sprite -->
@@ -113,12 +115,18 @@
       </div>
 
       <div class="input-row">
-        <textarea 
-          id="plea-input" 
-          placeholder="Plead for this tab's life... (e.g. 'Your Honor, I swear I was going to read it tonight!')"
-          rows="2"
-          maxlength="280"
-        ></textarea>
+        <div class="plea-input-container">
+          <textarea 
+            id="plea-input" 
+            placeholder="Plead for this tab's life... (e.g. 'Your Honor, I swear I was going to read it tonight!')"
+            rows="2"
+            maxlength="280"
+          ></textarea>
+          <!-- Dramatic Verdict Stamp (Slams directly over defendant's testimony text box) -->
+          <div id="verdict-stamp-container">
+            <div id="verdict-stamp" class="verdict-stamp">GUILTY</div>
+          </div>
+        </div>
 
         <div class="action-btn-group">
           <button type="button" id="mic-btn" class="retro-btn">

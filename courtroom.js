@@ -73,7 +73,9 @@ const DOM = {
   presetChips: document.querySelectorAll('.preset-chip'),
   verdictStampContainer: document.getElementById('verdict-stamp-container'),
   verdictStamp: document.getElementById('verdict-stamp'),
-  resurrectAlert: document.getElementById('resurrect-alert')
+  resurrectAlert: document.getElementById('resurrect-alert'),
+  gavelCutscene: document.getElementById('gavel-cutscene'),
+  gavelCutsceneImg: document.getElementById('gavel-cutscene-img')
 };
 
 // --- 5. AUDIO ENGINE (SOUND CONTROLLER) ---
@@ -427,6 +429,15 @@ const CourtroomFSM = {
     if (DOM.audioUnlockPrompt) {
       DOM.audioUnlockPrompt.style.display = 'none';
     }
+    if (DOM.verdictStampContainer) {
+      DOM.verdictStampContainer.classList.remove('active');
+    }
+    if (DOM.gavelCutscene) {
+      DOM.gavelCutscene.classList.remove('active');
+    }
+    if (DOM.resurrectAlert) {
+      DOM.resurrectAlert.style.display = 'none';
+    }
 
     const chargeSpeech = `Court is now in session! Defendant, you stand accused of UNAUTHORIZED TAB MURDER for the tab: "${STATE.accusedTitle}". How do you plead?!`;
 
@@ -495,12 +506,15 @@ const CourtroomFSM = {
       DOM.deliberationBanner.classList.remove('active');
     }
 
-    // Step 1: Flash surprised judge (400ms)
+    // Step 1: Flash surprised judge (350ms)
     setJudgeSprite('surprised');
 
     setTimeout(() => {
-      // Step 2: Switch to Gavel sprite & hammer
-      setJudgeSprite('gavel');
+      // Step 2: Full-screen Gavel strike cutscene takes over the entire screen
+      if (DOM.gavelCutscene && DOM.gavelCutsceneImg) {
+        DOM.gavelCutsceneImg.src = ASSETS.sprites.gavel + '?t=' + Date.now();
+        DOM.gavelCutscene.classList.add('active');
+      }
 
       // Step 3: Play loud Gavel sound
       sound.play('gavel');
@@ -510,36 +524,52 @@ const CourtroomFSM = {
         DOM.container.classList.remove('screen-shake');
         void DOM.container.offsetWidth; // Force reflow
         DOM.container.classList.add('screen-shake');
-        setTimeout(() => {
-          DOM.container.classList.remove('screen-shake');
-        }, 650);
+      }
+      if (DOM.gavelCutscene) {
+        DOM.gavelCutscene.classList.remove('screen-shake');
+        void DOM.gavelCutscene.offsetWidth;
+        DOM.gavelCutscene.classList.add('screen-shake');
       }
 
-      // Step 5: Slam red GUILTY stamp
-      if (DOM.verdictStampContainer && DOM.verdictStamp) {
-        DOM.verdictStamp.className = 'verdict-stamp guilty stamp-slam';
-        DOM.verdictStamp.textContent = 'GUILTY';
-        DOM.verdictStampContainer.classList.add('active');
-      }
-
-      // Step 6: Harsh verdict speech
-      const guiltSpeech = `GUILTY AS CHARGED! The excuse "${pleaText}" is utterly rejected! You had 42 tabs open! This tab is condemned to eternal memory allocation!`;
-
-      typewriter.type(guiltSpeech, {
-        speed: CONFIG.TYPEWRITER_SPEED_MS,
-        onStart: () => {
-          setJudgeSprite('stern_talking');
-        },
-        onComplete: () => {
-          setJudgeSprite('stern_idle');
-          // Reveal resurrected tab notification
-          if (DOM.resurrectAlert) {
-            DOM.resurrectAlert.style.display = 'block';
-          }
-          console.log("📌 [TAB COURT] SANCTION ENFORCED: Tab Pinned Forever.");
+      // Step 5: After gavel animation completes (~1150ms), return to courtroom UI
+      setTimeout(() => {
+        if (DOM.gavelCutscene) {
+          DOM.gavelCutscene.classList.remove('active');
+          DOM.gavelCutscene.classList.remove('screen-shake');
         }
-      });
-    }, 450);
+        if (DOM.container) {
+          DOM.container.classList.remove('screen-shake');
+        }
+
+        // Judge is now moving in stern talking mode on the bench
+        setJudgeSprite('stern_talking');
+
+        // Step 6: Slam red GUILTY stamp directly over defendant's testimony text box
+        if (DOM.verdictStampContainer && DOM.verdictStamp) {
+          DOM.verdictStamp.className = 'verdict-stamp guilty stamp-slam';
+          DOM.verdictStamp.textContent = 'GUILTY';
+          DOM.verdictStampContainer.classList.add('active');
+        }
+
+        // Step 7: Harsh verdict speech
+        const guiltSpeech = `GUILTY AS CHARGED! The excuse "${pleaText}" is utterly rejected! You had 42 tabs open! This tab is condemned to eternal memory allocation!`;
+
+        typewriter.type(guiltSpeech, {
+          speed: CONFIG.TYPEWRITER_SPEED_MS,
+          onStart: () => {
+            setJudgeSprite('stern_talking');
+          },
+          onComplete: () => {
+            setJudgeSprite('stern_idle');
+            // Reveal resurrected tab notification
+            if (DOM.resurrectAlert) {
+              DOM.resurrectAlert.style.display = 'block';
+            }
+            console.log("📌 [TAB COURT] SANCTION ENFORCED: Tab Pinned Forever.");
+          }
+        });
+      }, 1150);
+    }, 350);
   },
 
   enterVerdictPardoned(pleaText) {
@@ -548,13 +578,13 @@ const CourtroomFSM = {
       DOM.deliberationBanner.classList.remove('active');
     }
 
-    // Step 1: Judge Nodding
+    // Step 1: Judge Nodding (uncovered and visible moving on bench)
     setJudgeSprite('nodding');
 
     // Step 2: Acquittal 8-bit fanfare
     sound.play('acquitted');
 
-    // Step 3: Slam emerald PARDONED stamp
+    // Step 3: Slam emerald PARDONED stamp directly over defendant's testimony text box
     if (DOM.verdictStampContainer && DOM.verdictStamp) {
       DOM.verdictStamp.className = 'verdict-stamp pardoned stamp-slam';
       DOM.verdictStamp.textContent = 'PARDONED';
