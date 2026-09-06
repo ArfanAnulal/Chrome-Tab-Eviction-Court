@@ -223,25 +223,23 @@ def draw_barcode(c, x, y, width=155, height=10):
 def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter  # 612 x 792 pt
+    width, height = letter
+    styles = getSampleStyleSheet()
 
     # -------------------------------------------------------------
-    # 1. PARCHMENT / RETRO PAPER AESTHETIC
+    # 1. RETRO PARCHMENT BACKGROUND & ORNATE BORDERS
     # -------------------------------------------------------------
-    # Subtle aged background tint
-    c.setFillColor(colors.HexColor("#FAF7EE"))
+    # Page background parchment tone
+    c.setFillColor(colors.HexColor("#FAF6ED"))
     c.rect(0, 0, width, height, fill=1, stroke=0)
 
-    # Double-line ornate framing
-    # Outer bold border
-    c.setLineWidth(2.5)
-    c.setStrokeColor(colors.HexColor("#1A1A1A"))
-    c.rect(26, 26, width - 52, height - 52, fill=0, stroke=1)
-
-    # Inner thin border
+    # Double ornate border
+    c.setLineWidth(2.8)
+    c.setStrokeColor(colors.HexColor("#3D2E1E"))
+    c.rect(28, 28, width - 56, height - 56)
     c.setLineWidth(0.75)
-    c.setStrokeColor(colors.HexColor("#4A3B2C"))
-    c.rect(32, 32, width - 64, height - 64, fill=0, stroke=1)
+    c.setStrokeColor(colors.HexColor("#8C7D70"))
+    c.rect(34, 34, width - 68, height - 68)
 
     # Corner ornaments
     draw_corner_ornament(c, 34, 34, 1, 1)
@@ -271,7 +269,7 @@ def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
     # Chambers Subtitle
     c.setFont("Helvetica-Bold", 11)
     c.setFillColor(colors.HexColor("#4A3525"))
-    c.drawCentredString(width / 2.0, height - 89, "CHAMBERS OF ATTORNEY GENERAL TAB-NEY WRIGHT")
+    c.drawCentredString(width / 2.0, height - 89, "CHAMBERS OF THE HONORABLE MAGISTRATE BIT-SHIFT")
 
     # Absurd Latin lore / motto
     c.setFont("Times-Italic", 8.5)
@@ -368,8 +366,6 @@ def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
     # -------------------------------------------------------------
     # 3. STYLED TYPOGRAPHY & SECTIONS
     # -------------------------------------------------------------
-    styles = getSampleStyleSheet()
-
     def draw_section_header(title_text, y_pos):
         c.setFont("Helvetica-Bold", 9.5)
         c.setFillColor(colors.HexColor("#1A1A1A"))
@@ -425,7 +421,7 @@ def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
         leading=13.5,
         textColor=colors.HexColor("#2C241D")
     )
-    plea_p = Paragraph(f"“{html.escape(plea_text)}”", plea_style)
+    plea_p = Paragraph(f"\u201c{html.escape(plea_text)}\u201d", plea_style)
     pw, ph = plea_p.wrap(content_w - 24, 70)
 
     box_pad = 7
@@ -455,7 +451,7 @@ def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
         leading=14.5,
         textColor=colors.HexColor("#141414")
     )
-    sentence_p = Paragraph(f"<b>ATTORNEY GENERAL TAB-NEY WRIGHT'S OPINION:</b> {html.escape(sentence)}", sentence_style)
+    sentence_p = Paragraph(f"<b>MAGISTRATE'S BENCH OPINION:</b> {html.escape(sentence)}", sentence_style)
     sw, sh = sentence_p.wrap(content_w, 90)
     sentence_p.drawOn(c, left_x, cur_y - sh)
     cur_y -= (sh + 8)
@@ -569,11 +565,11 @@ def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
     c.setFillColor(colors.HexColor("#666666"))
     c.drawString(left_x, sig_y - 14, "Office of Discord Dispatcher & Tab Monitor")
 
-    # Right: Attorney General Tab-ney Wright Signature
+    # Right: Magistrate Bit-Shift Signature
     sig_r_x = width - left_x - 190
     c.setFont("Times-BoldItalic", 13)
     c.setFillColor(colors.HexColor("#4A1515"))
-    c.drawString(sig_r_x + 10, sig_y + 16, "Atty. Gen. Tab-ney Wright")
+    c.drawString(sig_r_x + 10, sig_y + 16, "The Hon. Attorney General Tab-ney Wright")
 
     c.setLineWidth(0.8)
     c.setStrokeColor(colors.HexColor("#444444"))
@@ -581,10 +577,10 @@ def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
 
     c.setFont("Helvetica-Bold", 7.5)
     c.setFillColor(colors.HexColor("#222222"))
-    c.drawString(sig_r_x, sig_y - 4, "ATTORNEY GENERAL TAB-NEY WRIGHT")
+    c.drawString(sig_r_x, sig_y - 4, "THE HONORABLE MAGISTRATE BIT-SHIFT")
     c.setFont("Courier", 6.5)
     c.setFillColor(colors.HexColor("#666666"))
-    c.drawString(sig_r_x, sig_y - 14, "Chief Justice & Attorney General, Tab Court")
+    c.drawString(sig_r_x, sig_y - 14, "Chief Justice, Ollama Llama 3.2:3b Tribunal")
 
     # -------------------------------------------------------------
     # 6. RETRO BARCODE & SERIAL STRIP
@@ -607,6 +603,7 @@ def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
     c.save()
     buffer.seek(0)
     return buffer.getvalue()
+
 
 DEFAULT_OFFLINE_RULING = {
     "verdict": "GUILTY",
@@ -749,7 +746,7 @@ def download_pdf(case_id: str):
             "case_id": clean_id,
             "tab_title": "Sanctioned Web Browser Tab",
             "tab_url": "https://chrome.google.com/webstore",
-            "plea": "Your Honor, I plead for digital clemency under court jurisdiction!",
+            "plea_text": "Your Honor, I plead for digital clemency under court jurisdiction!",
             "verdict": "PARDONED" if "pardon" in clean_id.lower() else "GUILTY",
             "sentence": "By decree of Attorney General Tab-ney Wright, this case docket is officially attested.",
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -759,5 +756,5 @@ def download_pdf(case_id: str):
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"inline; filename=court_order_{clean_id[:8]}.pdf"}
+        headers={"Content-Disposition": f"attachment; filename=court_order_{clean_id[:8]}.pdf"}
     )

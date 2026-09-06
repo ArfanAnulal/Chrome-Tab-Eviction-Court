@@ -20,7 +20,8 @@
   "permissions": [
     "tabs",
     "storage",
-    "alarms"
+    "alarms",
+    "downloads"
   ],
   "background": {
     "service_worker": "background.js"

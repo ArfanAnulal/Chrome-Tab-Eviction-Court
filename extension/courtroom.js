@@ -62,7 +62,8 @@ const STATE = {
   currentPhase: 'INIT', // 'INIT' | 'AWAITING_UNLOCK' | 'ARRAIGNMENT' | 'AWAITING_PLEA' | 'DELIBERATING' | 'VERDICT_GUILTY' | 'VERDICT_PARDONED'
   currentJudgeSprite: 'normal_idle',
   submittedPlea: '',
-  trialComplete: false
+  trialComplete: false,
+  lastVerdictData: null
 };
 
 // --- 4. DOM ELEMENTS CACHE ---
@@ -908,6 +909,215 @@ function attemptLocalClose() {
   }
 }
 
+// --- 8.6 COURT ORDER PDF CONTROLLER & DIRECT DOWNLOAD ENGINE ---
+function getShortCaseId(caseId) {
+  if (!caseId) {
+    return Array.from(crypto.getRandomValues(new Uint8Array(4)))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  const str = String(caseId).trim();
+  if (str.includes('-')) {
+    const firstPart = str.split('-')[0].replace(/[^a-zA-Z0-9]/g, '');
+    if (firstPart.length >= 4) {
+      return firstPart.toLowerCase();
+    }
+  }
+  const clean = str.replace(/^CASE\s*#?/i, '').replace(/[^a-zA-Z0-9]/g, '');
+  if (clean.length >= 4) {
+    return clean.slice(0, 8).toLowerCase();
+  }
+  return Array.from(crypto.getRandomValues(new Uint8Array(4)))
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function escapePdfText(str) {
+  return (str || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)')
+    .replace(/[^\x20-\x7E]/g, ' ');
+}
+
+function generateClientCourtOrderPDF(data = {}) {
+  const caseId = (data.caseId || '4fa056d3').slice(0, 8).toUpperCase();
+  const title = escapePdfText(data.tabTitle || 'Sanctioned Web Browser Tab');
+  const url = escapePdfText(data.tabUrl || 'https://chrome.google.com/webstore');
+  const plea = escapePdfText(data.pleaText || 'No plea entered.');
+  const verdict = (data.verdict || 'GUILTY').toUpperCase();
+  const isGuilty = verdict.includes('GUILTY');
+  const sentence = escapePdfText(data.sentence || 'No statement.');
+
+  let stream = '';
+  // Retro Document Border (double line)
+  stream += '3 w 0 0 0 RG 36 36 540 720 re s\n';
+  stream += '1 w 0 0 0 RG 42 42 528 708 re s\n';
+
+  // Header
+  stream += 'BT /F2 22 Tf 0 0 0 rg 1 0 0 1 88 702 Tm (HIGH COURT OF PRODUCTIVITY EVICTION) Tj ET\n';
+  stream += 'BT /F3 11 Tf 0 0 0 rg 1 0 0 1 178 682 Tm (OFFICIAL WARRANT & SUMMONS OF CONTEMPT) Tj ET\n';
+
+  // Metadata Line
+  stream += '0.5 w 0 0 0 RG 60 667 m 552 667 l s\n';
+  stream += 'BT /F4 10 Tf 0 0 0 rg 1 0 0 1 60 647 Tm (CASE NUMBER : EVICT-' + caseId + ') Tj ET\n';
+  stream += 'BT /F4 10 Tf 0 0 0 rg 1 0 0 1 60 632 Tm (DEFENDANT   : ACTIVE BROWSER USER) Tj ET\n';
+  stream += 'BT /F4 10 Tf 0 0 0 rg 1 0 0 1 60 617 Tm (EVICTED TAB : ' + title.slice(0, 55) + ') Tj ET\n';
+  stream += 'BT /F4 10 Tf 0 0 0 rg 1 0 0 1 60 602 Tm (TARGET URL  : ' + url.slice(0, 55) + ') Tj ET\n';
+
+  // Charge & Plea
+  stream += '0.5 w 0 0 0 RG 60 587 m 552 587 l s\n';
+  stream += 'BT /F2 12 Tf 0 0 0 rg 1 0 0 1 60 562 Tm (DEFENDANT PLEA / TESTIMONY:) Tj ET\n';
+  stream += 'BT /F3 10 Tf 0 0 0 rg 1 0 0 1 70 542 Tm ("' + plea.slice(0, 75) + '") Tj ET\n';
+
+  // Verdict Box
+  stream += 'BT /F2 12 Tf 0 0 0 rg 1 0 0 1 60 502 Tm (FINAL JUDICIAL RULING:) Tj ET\n';
+  if (isGuilty) {
+    stream += 'BT /F2 26 Tf 0.8 0 0 rg 1 0 0 1 60 467 Tm (>> ' + verdict + ' <<) Tj ET\n';
+  } else {
+    stream += 'BT /F2 26 Tf 0 0.533 0 rg 1 0 0 1 60 467 Tm (>> ' + verdict + ' <<) Tj ET\n';
+  }
+
+  // Sentence
+  stream += 'BT /F1 11 Tf 0 0 0 rg 1 0 0 1 60 432 Tm (OFFICIAL REASONING & PENALTY:) Tj ET\n';
+  if (sentence.length <= 75) {
+    stream += 'BT /F4 10 Tf 0 0 0 rg 1 0 0 1 70 412 Tm (' + sentence + ') Tj ET\n';
+  } else {
+    stream += 'BT /F4 10 Tf 0 0 0 rg 1 0 0 1 70 412 Tm (' + sentence.slice(0, 75) + ') Tj ET\n';
+    stream += 'BT /F4 10 Tf 0 0 0 rg 1 0 0 1 70 397 Tm (' + sentence.slice(75, 150) + ') Tj ET\n';
+  }
+
+  // Sarcastic Stamp
+  stream += 'BT /F2 10 Tf 0 0 0 rg 1 0 0 1 60 80 Tm (BY ORDER OF: Ollama Llama-3.2:3b Chief Justice) Tj ET\n';
+  stream += 'BT /F2 10 Tf 0 0 0 rg 1 0 0 1 60 65 Tm (STATUS     : BINDING IN ALL JURISDICTIONS) Tj ET\n';
+
+  const body = stream;
+  const objects = [];
+  objects.push('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+  objects.push('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+  objects.push('3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R /F3 7 0 R /F4 8 0 R >> >> >>\nendobj\n');
+  objects.push('4 0 obj\n<< /Length ' + body.length + ' >>\nstream\n' + body + '\nendstream\nendobj\n');
+  objects.push('5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n');
+  objects.push('6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n');
+  objects.push('7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>\nendobj\n');
+  objects.push('8 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>\nendobj\n');
+
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  let curOffset = pdf.length;
+
+  for (let i = 0; i < objects.length; i++) {
+    offsets.push(curOffset);
+    pdf += objects[i];
+    curOffset += objects[i].length;
+  }
+
+  const xrefOffset = curOffset;
+  pdf += 'xref\n0 ' + (objects.length + 1) + '\n';
+  pdf += '0000000000 65535 f \r\n';
+  for (let i = 1; i <= objects.length; i++) {
+    pdf += String(offsets[i]).padStart(10, '0') + ' 00000 n \r\n';
+  }
+  pdf += 'trailer\n<< /Size ' + (objects.length + 1) + ' /Root 1 0 R >>\nstartxref\n' + xrefOffset + '\n%%EOF\n';
+
+  return new Blob([pdf], { type: 'application/pdf' });
+}
+
+function downloadViaBlobAnchor(blobUrl, filename) {
+  const tempLink = document.createElement('a');
+  tempLink.style.display = 'none';
+  tempLink.href = blobUrl;
+  tempLink.download = filename;
+  document.body.appendChild(tempLink);
+  tempLink.click();
+  setTimeout(() => {
+    if (tempLink.parentNode) {
+      tempLink.parentNode.removeChild(tempLink);
+    }
+    URL.revokeObjectURL(blobUrl);
+  }, 10000);
+}
+
+async function triggerCourtOrderDownload() {
+  const btn = DOM.pdfDownloadBtn;
+  if (!btn) return;
+
+  const originalText = "DOWNLOAD OFFICIAL COURT ORDER WARRANT (PDF)";
+  btn.textContent = "⏳ DOWNLOADING COURT ORDER...";
+  btn.style.pointerEvents = "none";
+
+  const verdictData = STATE.lastVerdictData || {};
+  const shortId = getShortCaseId(verdictData.case_id || STATE.caseId);
+  const filename = `court_order_${shortId}.pdf`;
+  const remoteUrl = btn.dataset.url || verdictData.pdf_download_url || `http://127.0.0.1:8000/order/${shortId}.pdf`;
+
+  console.log("📜 [PDF Download] Requesting PDF download:", { filename, remoteUrl, shortId });
+
+  let pdfBlob = null;
+
+  // 1. Try fetching genuine ReportLab PDF from local FastAPI server (fast 2500ms abort timeout)
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(remoteUrl, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('pdf') || res.status === 200) {
+        pdfBlob = await res.blob();
+        console.log("⚡ [PDF Download] Fetched genuine PDF from backend server!");
+      }
+    }
+  } catch (err) {
+    console.warn("[PDF Download] Local backend not reachable or timed out:", err);
+  }
+
+  // 2. If backend is offline or Gradio/mock was used, synthesize authentic court order PDF client-side
+  if (!pdfBlob) {
+    console.log("[PDF Download] Generating authentic court order PDF client-side...");
+    pdfBlob = generateClientCourtOrderPDF({
+      caseId: shortId,
+      tabTitle: STATE.accusedTitle,
+      tabUrl: STATE.accusedUrl,
+      pleaText: STATE.submittedPlea || "No plea entered.",
+      verdict: (verdictData.verdict || "GUILTY").toUpperCase(),
+      sentence: verdictData.sentence || "By decree of Attorney General Tab-ney Wright, this case docket is officially attested."
+    });
+  }
+
+  // 3. Trigger direct browser download WITHOUT opening any new tab or URL
+  try {
+    const blobUrl = URL.createObjectURL(pdfBlob);
+
+    // If chrome.downloads API is available, use it for direct browser download
+    if (window.chrome?.downloads?.download) {
+      chrome.downloads.download({
+        url: blobUrl,
+        filename: filename,
+        saveAs: false
+      }, (downloadId) => {
+        if (chrome.runtime.lastError) {
+          console.warn("[PDF Download] chrome.downloads note, falling back to blob anchor:", chrome.runtime.lastError.message);
+          downloadViaBlobAnchor(blobUrl, filename);
+        } else {
+          console.log("✅ [PDF Download] Download initiated with ID:", downloadId);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+        }
+      });
+    } else {
+      downloadViaBlobAnchor(blobUrl, filename);
+    }
+
+    btn.textContent = "✅ COURT ORDER PDF DOWNLOADED!";
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.style.pointerEvents = "auto";
+    }, 3500);
+  } catch (downloadErr) {
+    console.error("[PDF Download] Error during download:", downloadErr);
+    btn.textContent = "⚠️ RETRY DOWNLOAD";
+    btn.style.pointerEvents = "auto";
+  }
+}
+
 // --- 9. COURTROOM FINITE STATE MACHINE (FSM) WITH OLLAMA BACKEND ---
 const CourtroomFSM = {
   transitionTo(newPhase, payload = {}) {
@@ -1124,6 +1334,17 @@ const CourtroomFSM = {
       };
     }
 
+    // Ensure case_id and pdf_download_url are fully populated
+    if (!verdictData.case_id) {
+      verdictData.case_id = Array.from(crypto.getRandomValues(new Uint8Array(4)))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    const shortCaseId = getShortCaseId(verdictData.case_id);
+    if (!verdictData.pdf_download_url) {
+      verdictData.pdf_download_url = `http://127.0.0.1:8000/order/${shortCaseId}.pdf`;
+    }
+    STATE.lastVerdictData = verdictData;
+
     // 9. Route to Verdict Phase
     const verdictStr = (verdictData.verdict || "GUILTY").toUpperCase();
     const isGuilty = verdictStr.includes("GUILTY");
@@ -1214,8 +1435,12 @@ const CourtroomFSM = {
 
             // 3. STAGGERED REVEAL: 1200ms after stamp, smoothly reveal Official PDF Warrant button
             setTimeout(() => {
-              if (verdictData.pdf_download_url && DOM.pdfContainer && DOM.pdfDownloadBtn) {
-                DOM.pdfDownloadBtn.href = verdictData.pdf_download_url;
+              if (DOM.pdfContainer && DOM.pdfDownloadBtn) {
+                const shortId = getShortCaseId(verdictData.case_id || STATE.caseId);
+                const filename = `court_order_${shortId}.pdf`;
+                DOM.pdfDownloadBtn.dataset.url = verdictData.pdf_download_url || `http://127.0.0.1:8000/order/${shortId}.pdf`;
+                DOM.pdfDownloadBtn.dataset.filename = filename;
+                DOM.pdfDownloadBtn.textContent = "DOWNLOAD OFFICIAL COURT ORDER WARRANT (PDF)";
                 DOM.pdfContainer.classList.add('active');
                 DOM.pdfContainer.style.display = 'flex';
               }
@@ -1301,8 +1526,12 @@ const CourtroomFSM = {
 
         // 3. STAGGERED REVEAL: 800ms later, smoothly reveal the Official PDF Warrant button
         setTimeout(() => {
-          if (verdictData.pdf_download_url && DOM.pdfContainer && DOM.pdfDownloadBtn) {
-            DOM.pdfDownloadBtn.href = verdictData.pdf_download_url;
+          if (DOM.pdfContainer && DOM.pdfDownloadBtn) {
+            const shortId = getShortCaseId(verdictData.case_id || STATE.caseId);
+            const filename = `court_order_${shortId}.pdf`;
+            DOM.pdfDownloadBtn.dataset.url = verdictData.pdf_download_url || `http://127.0.0.1:8000/order/${shortId}.pdf`;
+            DOM.pdfDownloadBtn.dataset.filename = filename;
+            DOM.pdfDownloadBtn.textContent = "DOWNLOAD OFFICIAL COURT ORDER WARRANT (PDF)";
             DOM.pdfContainer.classList.add('active');
             DOM.pdfContainer.style.display = 'flex';
           }
@@ -1428,11 +1657,23 @@ function initCourtroom() {
     });
   }
 
+  // Bind Court Order PDF Download Button
+  if (DOM.pdfDownloadBtn) {
+    DOM.pdfDownloadBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await triggerCourtOrderDownload();
+    });
+  }
+
   // Universal First Interaction Listener (Unlocks Audio on Click or Key)
   const unlockAudioGesture = () => {
     sound.unlock();
     window.removeEventListener('pointerdown', unlockAudioGesture);
     window.removeEventListener('keydown', unlockAudioGesture);
+
+    // Register beforeunload AFTER first user gesture so Chrome allows the dialog
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     if (STATE.currentPhase === 'AWAITING_UNLOCK') {
       CourtroomFSM.transitionTo('ARRAIGNMENT');
@@ -1488,7 +1729,7 @@ function initCourtroom() {
 }
 
 // --- 11. ANTI-ESCAPE & FULLSCREEN ANNOYANCE CONTROLLER ---
-function enforceCourtFullscreen() {
+function enforceCourtFullscreen(event) {
   // 1. Chrome Extension Windows API (Immediate window-level fullscreen, NO user gesture required!)
   if (window.chrome && chrome.windows && chrome.windows.getCurrent) {
     chrome.windows.getCurrent((win) => {
@@ -1498,12 +1739,15 @@ function enforceCourtFullscreen() {
     });
   }
 
-  // 2. DOM Fullscreen API (when user interacts)
-  try {
-    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    }
-  } catch (e) {}
+  // 2. DOM Fullscreen API — ONLY when called from a real user gesture (event listener),
+  //    otherwise Chrome throws: "API can only be initiated by a user gesture."
+  if (event && event.isTrusted) {
+    try {
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+    } catch (e) {}
+  }
 
   // 3. Message background script to guarantee fullscreen
   if (window.chrome && chrome.runtime && chrome.runtime.sendMessage) {
@@ -1548,7 +1792,8 @@ function handleBeforeUnload(e) {
   }
 }
 
-window.addEventListener('beforeunload', handleBeforeUnload);
+// beforeunload listener is now registered inside unlockAudioGesture() after first user interaction
+// to avoid Chrome blocking it (https://www.chromestatus.com/feature/5082396709879808)
 
 // Relentlessly retain focus if user attempts to switch tabs, windows, or blur
 function snapFocusBackToCourt() {

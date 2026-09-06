@@ -2,7 +2,7 @@
 
 
 
-# Attorney General Tab-ney Weight 🎯
+# Attorney General Tab-ney Wright 🎯
 
 
 ## Basic Details
