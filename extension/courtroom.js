@@ -8,15 +8,17 @@
 
 // --- 1. CONFIGURATION & BACKEND HANDSHAKE ---
 const CONFIG = {
-  // Live FastAPI backend (http://127.0.0.1:8000/judge) with automatic graceful mock fallback if offline
+  // Live Hugging Face ZeroGPU / FastAPI backend with automatic graceful mock fallback if offline
   USE_MOCK: false,
-  API_URL: "http://127.0.0.1:8000/judge",
+  API_URL: "https://arfananulal-attorney-general-tab-ney-wright.hf.space/gradio_api/call/adjudicate_case",
+  DISCORD_INVITE_URL: "https://discord.gg/DDC8hVVDh",
   MOCK_LATENCY_MS: 1800,
   TYPEWRITER_SPEED_MS: 38,       // Natural retro dialogue cadence
   TYPEWRITER_SOUND_INTERVAL: 3,  // Balanced mechanical clack rhythm
   AUDIO_ENABLED: true,
-  VERDICT_CLOSE_DELAY_MS: 15000, // 15 seconds screen stay duration after final verdict
-  PARDON_CLOSE_DELAY_MS: 15000
+  PARDON_CLOSE_DELAY_MS: 15000,      // 15 seconds screen stay duration after acquittal
+  GUILTY_TIMEOUT_MS: 30 * 60 * 1000, // 30 minutes punishment detention for guilty tabs
+  VERDICT_CLOSE_DELAY_MS: 15000
 };
 
 // --- 2. ASSET DICTIONARY ---
@@ -725,7 +727,7 @@ function preloadSprites() {
   });
 }
 
-// --- 8.5 VERDICT 15-SECOND STAY & ADJOURN CONTROLLER ---
+// --- 8.5 VERDICT STAY & ADJOURN CONTROLLER ---
 let dismissCountdownTimer = null;
 
 function cancelScreenDismissCountdown() {
@@ -736,39 +738,64 @@ function cancelScreenDismissCountdown() {
   if (DOM.adjournBanner) {
     DOM.adjournBanner.classList.remove('active');
     DOM.adjournBanner.classList.remove('adjourn-critical');
+    DOM.adjournBanner.classList.remove('adjourn-guilty');
   }
   if (DOM.promptIndicator) {
     DOM.promptIndicator.classList.remove('adjourn-countdown');
   }
 }
 
+function formatCountdownTime(sec) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (m > 0) {
+    return `${m}m ${s < 10 ? '0' : ''}${s}s`;
+  }
+  return `${s}s`;
+}
+
 function startScreenDismissCountdown(delayMs = 15000, verdictType = 'PARDONED') {
   cancelScreenDismissCountdown();
 
   const isGuilty = verdictType === 'GUILTY';
-  const labelPrefix = isGuilty ? "COURT ADJOURNS IN" : "TAB CLOSING IN";
+  const delaySec = Math.round(delayMs / 1000);
+
+  // 1. Immediately schedule background worker auto-close as independent fail-safe authority
+  if (window.chrome?.runtime?.sendMessage) {
+    chrome.runtime.sendMessage({
+      action: "SCHEDULE_AUTO_CLOSE",
+      delaySeconds: delaySec,
+      tabId: STATE.courtTabId,
+      windowId: STATE.courtWinId
+    }, (res) => {
+      console.log("[COURT] Background auto-close scheduled:", res);
+    });
+  }
 
   if (DOM.adjournBanner) {
     DOM.adjournBanner.classList.remove('adjourn-critical');
+    DOM.adjournBanner.classList.toggle('adjourn-guilty', isGuilty);
     DOM.adjournBanner.classList.add('active');
   }
 
   const updateDisplay = (sec) => {
+    const formatted = formatCountdownTime(sec);
     if (DOM.adjournText) {
-      DOM.adjournText.textContent = `${labelPrefix} ${sec} SECONDS...`;
+      DOM.adjournText.textContent = isGuilty 
+        ? `COURT IN SESSION (30-MIN DETENTION): ${formatted} REMAINING...` 
+        : `TAB CLOSING IN ${formatted}...`;
     }
     if (DOM.promptIndicator) {
       DOM.promptIndicator.classList.add('adjourn-countdown');
-      DOM.promptIndicator.textContent = `[ ${sec}s ]`;
+      DOM.promptIndicator.textContent = `[ ${formatted} ]`;
       DOM.promptIndicator.style.display = 'block';
     }
-    if (sec <= 3 && DOM.adjournBanner) {
+    if (!isGuilty && sec <= 3 && DOM.adjournBanner) {
       DOM.adjournBanner.classList.add('adjourn-critical');
     }
   };
 
-  const initialSec = Math.round(delayMs / 1000);
-  updateDisplay(initialSec);
+  updateDisplay(delaySec);
 
   const startTime = Date.now();
   const endTime = startTime + delayMs;
@@ -786,7 +813,7 @@ function startScreenDismissCountdown(delayMs = 15000, verdictType = 'PARDONED') 
 
       if (DOM.adjournText) {
         DOM.adjournText.textContent = isGuilty 
-          ? "COURT ADJOURNED — SENTENCE ACTIVE" 
+          ? "SENTENCE SERVED — COURT ADJOURNED" 
           : "TAB CLOSED — EUTHANASIA COMPLETE";
       }
       if (DOM.promptIndicator) {
@@ -795,12 +822,8 @@ function startScreenDismissCountdown(delayMs = 15000, verdictType = 'PARDONED') 
 
       STATE.trialComplete = true;
       window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('blur', snapFocusBackToCourt);
       sound.stopAll();
-
-      // Exit DOM fullscreen if active
-      if (document.fullscreenElement && document.exitFullscreen) {
-        document.exitFullscreen().catch(() => {});
-      }
 
       // Close courtroom tab cleanly with full extension authority
       closeCourtroomTabCleanly();
@@ -808,84 +831,71 @@ function startScreenDismissCountdown(delayMs = 15000, verdictType = 'PARDONED') 
   }, 1000);
 }
 
-function closeCourtroomTabCleanly() {
-  console.log("⚖️ [COURT] Executing final adjournment and tab closure...", {
+async function closeCourtroomTabCleanly() {
+  console.log("⚖️ [COURT] Executing final clean adjournment and tab closure...", {
     tabId: STATE.courtTabId,
     winId: STATE.courtWinId
   });
 
-  // 1. Remove beforeunload listener immediately so no prompt can block closure
-  window.removeEventListener('beforeunload', handleBeforeUnload);
+  // 1. Remove unload and focus retention listeners
   STATE.trialComplete = true;
+  window.removeEventListener('beforeunload', handleBeforeUnload);
+  window.removeEventListener('blur', snapFocusBackToCourt);
   sound.stopAll();
 
-  // 2. Disarm anti-escape in persistent storage so background will NOT resurrect
+  // 2. Disarm anti-escape in persistent storage
   if (window.chrome?.storage?.local) {
-    chrome.storage.local.set({
+    await chrome.storage.local.set({
       isCourtActive: false,
-      courtStatus: "ADJOURNED"
-    });
+      courtStatus: "ADJOURNED",
+      activeCourtTabId: null
+    }).catch(() => {});
   }
 
-  // 3. Exit DOM fullscreen if active
-  if (document.fullscreenElement && document.exitFullscreen) {
-    document.exitFullscreen().catch(() => {});
-  }
-
-  // 4. Restore window state from fullscreen to normal
-  const restoreWindow = (winId) => {
-    if (winId && window.chrome?.windows?.update) {
-      chrome.windows.update(winId, { state: "normal" }).catch(() => {});
-    } else if (window.chrome?.windows?.getCurrent) {
-      chrome.windows.getCurrent((currWin) => {
-        if (currWin?.id) {
-          chrome.windows.update(currWin.id, { state: "normal" }).catch(() => {});
-        }
-      });
-    }
-  };
-  restoreWindow(STATE.courtWinId);
-
-  // 5. Signal background service worker to close this tab
+  // 3. Signal background service worker to close all courtroom tabs
   if (window.chrome?.runtime?.sendMessage) {
     chrome.runtime.sendMessage({
       action: "ADJOURN_AND_CLOSE",
       tabId: STATE.courtTabId,
       windowId: STATE.courtWinId
-    }, () => {});
+    }, (res) => {
+      console.log("⚖️ [COURT] Background confirmed adjournment:", res);
+    });
   }
 
-  // 6. Direct closure vector via chrome.tabs.remove
-  const attemptDirectRemove = () => {
-    if (STATE.courtTabId && window.chrome?.tabs?.remove) {
-      chrome.tabs.remove(STATE.courtTabId).catch((err) => {
-        console.warn("[COURT] Direct tabs.remove failed, trying query fallback:", err);
-        fallbackRemoveByQuery();
-      });
-    } else {
-      fallbackRemoveByQuery();
-    }
-  };
-
-  const fallbackRemoveByQuery = () => {
-    if (window.chrome?.tabs?.query) {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs && tabs[0]?.id) {
-          chrome.tabs.remove(tabs[0].id).catch(() => attemptLocalClose());
-        } else {
-          attemptLocalClose();
+  // 4. Direct tab removal via chrome.tabs API across all available vectors
+  if (window.chrome?.tabs) {
+    // Vector A: chrome.tabs.getCurrent
+    if (chrome.tabs.getCurrent) {
+      chrome.tabs.getCurrent((curTab) => {
+        if (curTab?.id) {
+          chrome.tabs.remove(curTab.id).catch(() => {});
         }
       });
-    } else {
-      attemptLocalClose();
     }
-  };
 
-  attemptDirectRemove();
+    // Vector B: Known courtTabId
+    if (STATE.courtTabId) {
+      chrome.tabs.remove(STATE.courtTabId).catch(() => {});
+    }
 
-  // Redundant retry after 150ms in case tab removal was deferred
+    // Vector C: Query all tabs running courtroom.html
+    if (chrome.tabs.query) {
+      chrome.tabs.query({}, (tabs) => {
+        if (tabs) {
+          for (const t of tabs) {
+            if (t.id && t.url && t.url.includes("courtroom.html")) {
+              chrome.tabs.remove(t.id).catch(() => {});
+            }
+          }
+        }
+      });
+    }
+  }
+
+  // 5. Fallback for non-extension / localhost browsers
   setTimeout(() => {
-    attemptDirectRemove();
+    attemptLocalClose();
   }, 150);
 }
 
@@ -1021,36 +1031,78 @@ const CourtroomFSM = {
 
     let verdictData = null;
 
-    // 7. Live FastAPI / Ollama Backend Request
+    // 7. Live Hugging Face ZeroGPU (Gradio) or FastAPI / Ollama Backend Request
     if (!CONFIG.USE_MOCK) {
       try {
-        console.log("⚡ [BACKEND] Contacting FastAPI Judge at:", CONFIG.API_URL);
+        console.log("⚡ [BACKEND] Contacting Judicial Endpoint at:", CONFIG.API_URL);
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 14000);
+        const timeoutId = setTimeout(() => controller.abort(), 16000);
 
-        const res = await fetch(CONFIG.API_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            tab_url: STATE.accusedUrl,
-            tab_title: STATE.accusedTitle,
-            plea_text: pleaText
-          }),
-          signal: controller.signal
-        });
+        if (CONFIG.API_URL.includes("gradio_api") || CONFIG.API_URL.includes("hf.space")) {
+          const callUrl = CONFIG.API_URL.includes("gradio_api")
+            ? CONFIG.API_URL
+            : `${CONFIG.API_URL.replace(/\/+$/, '')}/gradio_api/call/adjudicate_case`;
+
+          const postRes = await fetch(callUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              data: [STATE.accusedTitle, STATE.accusedUrl, pleaText]
+            }),
+            signal: controller.signal
+          });
+
+          if (postRes.ok) {
+            const queueData = await postRes.json();
+            const eventId = queueData?.event_id;
+            if (eventId) {
+              const streamUrl = `${callUrl}/${eventId}`;
+              const streamRes = await fetch(streamUrl, { signal: controller.signal });
+              if (streamRes.ok) {
+                const streamText = await streamRes.text();
+                const lines = streamText.split('\n');
+                for (const line of lines) {
+                  if (line.startsWith('data:')) {
+                    const raw = line.slice(5).trim();
+                    try {
+                      const parsed = JSON.parse(raw);
+                      const item = Array.isArray(parsed) ? parsed[0] : parsed;
+                      if (item && item.verdict) {
+                        verdictData = item;
+                        break;
+                      }
+                    } catch (e) {}
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          const res = await fetch(CONFIG.API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tab_url: STATE.accusedUrl,
+              tab_title: STATE.accusedTitle,
+              plea_text: pleaText
+            }),
+            signal: controller.signal
+          });
+
+          if (res.ok) {
+            verdictData = await res.json();
+            if (typeof verdictData === "string") {
+              verdictData = JSON.parse(verdictData);
+            }
+          }
+        }
         clearTimeout(timeoutId);
 
-        if (res.ok) {
-          verdictData = await res.json();
-          if (typeof verdictData === "string") {
-            verdictData = JSON.parse(verdictData);
-          }
-          console.log("⚡ [BACKEND] Received Ollama Verdict:", verdictData);
-        } else {
-          console.warn("[BACKEND] Server returned non-200:", res.status);
+        if (verdictData) {
+          console.log("⚡ [BACKEND] Received Judicial Ruling:", verdictData);
         }
       } catch (err) {
-        console.warn("[BACKEND] FastAPI offline or timed out, activating internal GPU jury fallback:", err);
+        console.warn("[BACKEND] Judicial endpoint offline or timed out, activating internal GPU jury fallback:", err);
       }
     }
 
@@ -1068,7 +1120,7 @@ const CourtroomFSM = {
           : `GUILTY AS CHARGED! The excuse "${pleaText}" is utterly rejected! You had 42 tabs open! This tab is condemned to eternal memory allocation!`,
         confidence: 0.92,
         case_id: fallbackCaseId,
-        pdf_download_url: `http://127.0.0.1:8000/download_order/${fallbackCaseId}`
+        pdf_download_url: `http://127.0.0.1:8000/order/${fallbackCaseId}.pdf`
       };
     }
 
@@ -1201,9 +1253,9 @@ const CourtroomFSM = {
               }
             }
 
-            // Step 5: Screen stays open for 15 seconds AFTER final verdict is fully given!
+            // Step 5: Screen stays locked for 30 MINUTES punishment detention AFTER final verdict is fully given!
             setTimeout(() => {
-              startScreenDismissCountdown(CONFIG.VERDICT_CLOSE_DELAY_MS, 'GUILTY');
+              startScreenDismissCountdown(CONFIG.GUILTY_TIMEOUT_MS, 'GUILTY');
             }, 1200);
           }, 1150);
         }, 350);
@@ -1227,7 +1279,7 @@ const CourtroomFSM = {
 
     // Step 1: Judge speaks dismissal speech FIRST
     setJudgeSprite('normal_talking');
-    const pardonSpeech = verdictData.sentence || `CASE DISMISSED! A plausible defense. The Court reluctantly grants tab euthanasia. Tab closure permitted in ${CONFIG.VERDICT_CLOSE_DELAY_MS / 1000} seconds...`;
+    const pardonSpeech = verdictData.sentence || `CASE DISMISSED! A plausible defense. The Court reluctantly grants tab euthanasia. Tab closure permitted in ${CONFIG.PARDON_CLOSE_DELAY_MS / 1000} seconds...`;
 
     typewriter.type(pardonSpeech, {
       speed: CONFIG.TYPEWRITER_SPEED_MS,
@@ -1258,7 +1310,7 @@ const CourtroomFSM = {
 
         // Step 4: Screen stays open for 15 seconds AFTER final verdict is fully given!
         setTimeout(() => {
-          startScreenDismissCountdown(CONFIG.VERDICT_CLOSE_DELAY_MS, 'PARDONED');
+          startScreenDismissCountdown(CONFIG.PARDON_CLOSE_DELAY_MS, 'PARDONED');
         }, 800);
       }
     });

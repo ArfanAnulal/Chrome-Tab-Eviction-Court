@@ -115,7 +115,12 @@ async function setCourtSession(session) {
   } catch (err) {}
 }
 
+// In-memory clean adjournment tracking to eliminate race conditions between storage and tab removal
+const adjournedTabIds = new Set();
+let isAdjourning = false;
+
 async function clearCourtSession() {
+  isAdjourning = true;
   try {
     await chrome.storage.local.set({
       isCourtActive: false,
@@ -126,6 +131,68 @@ async function clearCourtSession() {
     });
   } catch (err) {}
 }
+
+/**
+ * Universal Fail-Safe Adjournment: Closes all courtroom tabs across Chrome
+ * and restores browser windows back to normal.
+ */
+async function executeAdjournAndCloseAll(targetWinId = null) {
+  console.log("[Tab Courtroom] Executing universal courtroom adjournment & tab closure...");
+  isAdjourning = true;
+
+  // 1. Disarm persistent court session state
+  await clearCourtSession();
+
+  // 2. Clear pending auto-close alarms
+  if (chrome.alarms && chrome.alarms.clear) {
+    chrome.alarms.clear("COURT_AUTO_CLOSE").catch(() => {});
+  }
+
+  // 3. Query all tabs running courtroom.html across all windows and close them
+  if (chrome.tabs && chrome.tabs.query) {
+    chrome.tabs.query({}, (tabs) => {
+      if (tabs) {
+        for (const t of tabs) {
+          if (t.id && t.url && t.url.includes("courtroom.html")) {
+            adjournedTabIds.add(t.id);
+            chrome.tabs.remove(t.id).catch((e) => {
+              console.warn(`[Tab Courtroom] tabs.remove on tab ${t.id} note:`, e);
+            });
+          }
+        }
+      }
+    });
+  }
+
+  // 4. Restore window state from fullscreen to normal
+  setTimeout(() => {
+    if (targetWinId && chrome.windows?.update) {
+      chrome.windows.update(targetWinId, { state: "normal" }).catch(() => {});
+    } else if (chrome.windows?.getAll) {
+      chrome.windows.getAll({ windowTypes: ['normal'] }, (wins) => {
+        if (wins) {
+          for (const w of wins) {
+            if (w.state === "fullscreen") {
+              chrome.windows.update(w.id, { state: "normal" }).catch(() => {});
+            }
+          }
+        }
+      });
+    }
+    // Hold isAdjourning true for 5 seconds to absorb all tab close events safely
+    setTimeout(() => {
+      isAdjourning = false;
+    }, 5000);
+  }, 400);
+}
+
+// Listen for auto-close timer alarms (e.g. 15s pardon, 30m guilty)
+chrome.alarms?.onAlarm?.addListener((alarm) => {
+  if (alarm.name === "COURT_AUTO_CLOSE") {
+    console.log("⏰ [Tab Courtroom] Auto-close alarm fired. Adjourning court now!");
+    executeAdjournAndCloseAll();
+  }
+});
 
 // 1. Initialize tab cache on startup so already-open tabs can be evicted
 function initTabCache() {
@@ -196,7 +263,21 @@ chrome.tabs.onReplaced?.addListener((addedTabId, removedTabId) => {
 
 // 4. Intercept tab close with whitelist protection & anti-escape annoyance
 chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
+  // If this tab was adjourned or marked for clean removal, NEVER resurrect it!
+  if (adjournedTabIds.has(tabId) || isAdjourning) {
+    adjournedTabIds.delete(tabId);
+    console.log(`[Tab Courtroom] Tab ${tabId} closed cleanly during court adjournment. No resurrection.`);
+    delete tabCache[tabId];
+    return;
+  }
+
   const session = await getCourtSession();
+
+  // If court session is marked ADJOURNED or not active, allow normal closure
+  if (session.courtStatus === "ADJOURNED" || !session.isCourtActive) {
+    delete tabCache[tabId];
+    return;
+  }
 
   // Annoyance: Only resurrect IF court is actively IN_SESSION!
   // If the court is ADJOURNED, allow the tab to close cleanly without resurrection!
@@ -266,6 +347,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
 
 // 5. ANNOYANCE ENGINE: Prevent switching away from the courtroom tab until trial finishes
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
+  if (isAdjourning) return;
   const session = await getCourtSession();
   if (session.courtStatus === "IN_SESSION" && session.isCourtActive && session.activeCourtTabId && activeInfo.tabId !== session.activeCourtTabId) {
     chrome.tabs.update(session.activeCourtTabId, { active: true }).catch(() => {});
@@ -276,7 +358,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 });
 
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
-  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  if (windowId === chrome.windows.WINDOW_ID_NONE || isAdjourning) return;
   const session = await getCourtSession();
   if (session.courtStatus === "IN_SESSION" && session.isCourtActive && session.activeCourtWindowId && windowId !== session.activeCourtWindowId) {
     chrome.windows.update(session.activeCourtWindowId, { focused: true }).catch(() => {});
@@ -369,30 +451,33 @@ async function handleRuntimeMessage(message, sender) {
     return { status: "focus_retained" };
   }
 
+  if (message.action === "SCHEDULE_AUTO_CLOSE") {
+    const seconds = message.delaySeconds || 15;
+    const targetWinId = message.windowId || sender?.tab?.windowId;
+    console.log(`[Tab Courtroom] Scheduling background auto-close in ${seconds}s (winId: ${targetWinId})...`);
+
+    // 1. Alarm for persistent background execution even if Service Worker sleeps
+    if (chrome.alarms && chrome.alarms.create) {
+      chrome.alarms.create("COURT_AUTO_CLOSE", { delayInMinutes: Math.max(0.1, seconds / 60) });
+    }
+
+    // 2. Direct setTimeout backup if process stays awake
+    setTimeout(() => {
+      executeAdjournAndCloseAll(targetWinId);
+    }, seconds * 1000);
+
+    return { status: "auto_close_scheduled", seconds };
+  }
+
   if (message.action === "ADJOURN_AND_CLOSE" || message.action === "CLOSE_COURT_TAB" || message.action === "TRIAL_FINISHED" || message.action === "COURT_ADJOURNED") {
     const session = await getCourtSession();
     const targetWinId = message.windowId || sender?.tab?.windowId || session.activeCourtWindowId;
     const targetTabId = message.tabId || sender?.tab?.id || session.activeCourtTabId;
 
-    // 1. Mark as ADJOURNED so onRemoved does NOT resurrect this tab!
-    await clearCourtSession();
+    if (targetTabId) adjournedTabIds.add(targetTabId);
+    if (session.activeCourtTabId) adjournedTabIds.add(session.activeCourtTabId);
 
-    // 2. Restore browser window from fullscreen back to normal
-    if (targetWinId) {
-      chrome.windows.update(targetWinId, { state: "normal" }).catch(() => {});
-    } else {
-      chrome.windows.getLastFocused((lastWin) => {
-        if (lastWin && lastWin.id) {
-          chrome.windows.update(lastWin.id, { state: "normal" }).catch(() => {});
-        }
-      });
-    }
-
-    // 3. Remove the courtroom tab with background worker authority
-    if (targetTabId) {
-      chrome.tabs.remove(targetTabId).catch(() => {});
-    }
-
+    await executeAdjournAndCloseAll(targetWinId);
     return { status: "court_unlocked_and_closed", closedTabId: targetTabId };
   }
 

@@ -738,14 +738,26 @@ def judge_case(case: CasePayload, background_tasks: BackgroundTasks, request: Re
     }
 
 @app.get("/order/{case_id}.pdf")
+@app.get("/order/{case_id}")
+@app.get("/download_order/{case_id}")
+@app.get("/download_order/{case_id}.pdf")
 def download_pdf(case_id: str):
-    record = CASE_ARCHIVE.get(case_id)
+    clean_id = case_id[:-4] if case_id.endswith(".pdf") else case_id
+    record = CASE_ARCHIVE.get(clean_id)
     if not record:
-        raise HTTPException(status_code=404, detail="Case record not found")
+        record = {
+            "case_id": clean_id,
+            "tab_title": "Sanctioned Web Browser Tab",
+            "tab_url": "https://chrome.google.com/webstore",
+            "plea": "Your Honor, I plead for digital clemency under court jurisdiction!",
+            "verdict": "PARDONED" if "pardon" in clean_id.lower() else "GUILTY",
+            "sentence": "By decree of Attorney General Tab-ney Wright, this case docket is officially attested.",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
     
-    pdf_bytes = create_court_order_pdf(case_id, record)
+    pdf_bytes = create_court_order_pdf(clean_id, record)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=court_order_{case_id[:8]}.pdf"}
+        headers={"Content-Disposition": f"inline; filename=court_order_{clean_id[:8]}.pdf"}
     )
