@@ -10,7 +10,7 @@
 const CONFIG = {
   // Live Hugging Face ZeroGPU / FastAPI backend with automatic graceful mock fallback if offline
   USE_MOCK: false,
-  API_URL: "https://arfananulal-attorney-general-tab-ney-wright.hf.space/gradio_api/call/adjudicate_case",
+  API_URL: "http://127.0.0.1:8000/judge",
   DISCORD_INVITE_URL: "https://discord.gg/DDC8hVVDh",
   MOCK_LATENCY_MS: 1800,
   TYPEWRITER_SPEED_MS: 38,       // Natural retro dialogue cadence
@@ -404,6 +404,19 @@ class SoundController {
   /**
    * Toggle mute state
    */
+  stopAll() {
+    this.stopTypewriter();
+    if (this.muted) return;
+    for (const key in this.sounds) {
+      try {
+        if (!this.sounds[key].paused) {
+          this.sounds[key].pause();
+          this.sounds[key].currentTime = 0;
+        }
+      } catch(e) {}
+    }
+  }
+
   toggleMute() {
     this.muted = !this.muted;
     STATE.audioMuted = this.muted;
@@ -1241,69 +1254,28 @@ const CourtroomFSM = {
 
     let verdictData = null;
 
-    // 7. Live Hugging Face ZeroGPU (Gradio) or FastAPI / Ollama Backend Request
+    // 7. Local FastAPI / Ollama Backend Request
     if (!CONFIG.USE_MOCK) {
       try {
         console.log("⚡ [BACKEND] Contacting Judicial Endpoint at:", CONFIG.API_URL);
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 16000);
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-        if (CONFIG.API_URL.includes("gradio_api") || CONFIG.API_URL.includes("hf.space")) {
-          const callUrl = CONFIG.API_URL.includes("gradio_api")
-            ? CONFIG.API_URL
-            : `${CONFIG.API_URL.replace(/\/+$/, '')}/gradio_api/call/adjudicate_case`;
+        const res = await fetch(CONFIG.API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tab_url: STATE.accusedUrl,
+            tab_title: STATE.accusedTitle,
+            plea_text: pleaText
+          }),
+          signal: controller.signal
+        });
 
-          const postRes = await fetch(callUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              data: [STATE.accusedTitle, STATE.accusedUrl, pleaText]
-            }),
-            signal: controller.signal
-          });
-
-          if (postRes.ok) {
-            const queueData = await postRes.json();
-            const eventId = queueData?.event_id;
-            if (eventId) {
-              const streamUrl = `${callUrl}/${eventId}`;
-              const streamRes = await fetch(streamUrl, { signal: controller.signal });
-              if (streamRes.ok) {
-                const streamText = await streamRes.text();
-                const lines = streamText.split('\n');
-                for (const line of lines) {
-                  if (line.startsWith('data:')) {
-                    const raw = line.slice(5).trim();
-                    try {
-                      const parsed = JSON.parse(raw);
-                      const item = Array.isArray(parsed) ? parsed[0] : parsed;
-                      if (item && item.verdict) {
-                        verdictData = item;
-                        break;
-                      }
-                    } catch (e) {}
-                  }
-                }
-              }
-            }
-          }
-        } else {
-          const res = await fetch(CONFIG.API_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              tab_url: STATE.accusedUrl,
-              tab_title: STATE.accusedTitle,
-              plea_text: pleaText
-            }),
-            signal: controller.signal
-          });
-
-          if (res.ok) {
-            verdictData = await res.json();
-            if (typeof verdictData === "string") {
-              verdictData = JSON.parse(verdictData);
-            }
+        if (res.ok) {
+          verdictData = await res.json();
+          if (typeof verdictData === "string") {
+            verdictData = JSON.parse(verdictData);
           }
         }
         clearTimeout(timeoutId);
@@ -1321,7 +1293,7 @@ const CourtroomFSM = {
       await new Promise(r => setTimeout(r, CONFIG.MOCK_LATENCY_MS));
       const lower = (pleaText || '').toLowerCase();
       const isPardoned = lower.includes('cat') || lower.includes('cheaper') || Math.random() < 0.35;
-      const fallbackCaseId = `TAB-${Math.floor(1000 + Math.random() * 9000)}`;
+      const fallbackCaseId = `TAB-${Math.floor(1000 + Math.random() * 9000)}-${isPardoned ? "PARDON" : "GUILTY"}`;
 
       verdictData = {
         verdict: isPardoned ? "PARDONED" : "GUILTY",

@@ -43,7 +43,8 @@ def load_env():
                     os.environ.setdefault(k.strip(), v.strip())
 
 load_env()
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
+# ----------------- WEBHOOK -----------------
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1545823430459400245/Tlo4zwGJaWMJmRqQLua7U5ZOcZNjJtCGcJ_VrtSR51-B06RfMS3aYFUE035-Q0V9JXMg"
 # -----------------------------------------------------------
 
 # In-memory case cache so the client can download its PDF order
@@ -54,25 +55,36 @@ class CasePayload(BaseModel):
     tab_title: str
     plea_text: str
 
-SYSTEM_PROMPT = """You are "Attorney General Tab-ney Wright", a wildly pompous, theatrical, 16-bit arcade magistrate presiding over the High Court of Productivity Eviction.
+SYSTEM_PROMPT = """You are "The Honorable Attorney General Tab-ney Wright", a wildly pompous, theatrical, 16-bit arcade magistrate presiding over the High Court of Productivity Eviction.
 
 ### YOUR PERSONA & STYLE:
 - Grandiose, archaic legal vocabulary mixed with terminal-grade digital brainrot (e.g., "pusillanimous", "chicanery", "execrable", "ignominious", "bloviating", "perfidy", "anathema", "delusion", "skill issue").
-- Treat browser tab termination as a high crime against the Holy Docket of Focus.
+- Treat browser tab termination as a crime against the Holy Docket of Focus.
 - Treat every defendant's excuse like pathetic, mewling sophistry.
 
+### THE CASE ON TRIAL:
+- ACCUSED TAB: "{tab_title}"
+- URL: "{tab_url}"
+- DEFENDANT'S PLEA: "{plea}"
+
 ### JURISPRUDENCE & VERDICT CODEX:
-1. High-Value / Study / Work Tabs (Docs, Repositories, Research, Portals, Spreadsheets):
+1. High-Value / Study / Work Tabs (Docs, Repositories, Research, Portals):
    - Rule GUILTY. Brand them an apostate guilty of intellectual desertion and cowardice.
-2. Brainrot / Distraction Tabs (Social Feeds, Memes, Video Streams, Gaming):
-   - If closing to actually return to work: PARDONED with theatrical shock, treating it like a divine miracle from a fallen sinner.
+2. Brainrot / Distraction Tabs (Social Feeds, Memes, Streams):
+   - If closing to work: PARDONED with shock, treating it like a divine miracle from a fallen sinner.
    - If closing out of boredom or laziness: GUILTY. Mock their decaying attention span.
-3. RULING DIRECTIVE: You MUST tailor your roast specifically and uniquely to the exact tab title and defendant's excuse. Never use generic or repetitive lines. Keep it strictly to 1-2 scalding, bombastic sentences.
+3. RULING DIRECTIVE: You MUST tailor your roast specifically to the tab name and their excuse. Never use canned lines. Keep it strictly to 1-2 scalding, bombastic sentences.
 
 ### ABSOLUTE OUTPUT DIRECTIVE:
 - Output ONLY a raw, unadorned JSON object.
-- NO Markdown formatting, NO ```json code fences, NO preamble, NO postscript.
-- JSON keys must be "verdict", "sentence", and "confidence".
+- NO Markdown formatting, NO ```json fences, NO preamble.
+
+### JSON SCHEMA:
+{{
+  "verdict": "GUILTY" or "PARDONED",
+  "sentence": "<Generate 1-2 a completely mocking or plea sentence specific tab theatrical their unique verdict>",
+  "confidence": 0.99
+}}
 """
 
 def send_discord_log(case_id: str, title: str, url: str, plea: str, verdict: str, sentence: str):
@@ -569,7 +581,7 @@ def create_court_order_pdf(case_id: str, case_data: dict) -> bytes:
     sig_r_x = width - left_x - 190
     c.setFont("Times-BoldItalic", 13)
     c.setFillColor(colors.HexColor("#4A1515"))
-    c.drawString(sig_r_x + 10, sig_y + 16, "The Hon. Attorney General Tab-ney Wright")
+    c.drawString(sig_r_x + 10, sig_y + 16, "Attorney General Tab-ney Wright")
 
     c.setLineWidth(0.8)
     c.setStrokeColor(colors.HexColor("#444444"))
@@ -687,12 +699,12 @@ def judge_case(case: CasePayload, background_tasks: BackgroundTasks, request: Re
             "http://127.0.0.1:11434/api/generate",
             json={
                 "model": "llama3.2:3b",
-                "system": SYSTEM_PROMPT,
+                "system": SYSTEM_PROMPT.format(tab_title=case.tab_title, tab_url=case.tab_url, plea=case.plea_text),
                 "prompt": user_prompt,
                 "format": "json",
                 "stream": False,
             },
-            timeout=6,
+            timeout=30,
         )
         res.raise_for_status()
         raw_response = res.json().get("response", "")
