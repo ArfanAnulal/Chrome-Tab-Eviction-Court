@@ -10,8 +10,8 @@
 
 
 ### Team Members
-- Member 1: Arfan V Anulal - Viswajyothi college of Engineering and Technology
-- Member 2: Seona Ann Tom - Viswajyothi college of Engineering and Technology
+- Member 1: Seona Ann Tom - Viswajyothi college of Engineering and Technology
+- Member 2: Arfan V Anulal - Viswajyothi college of Engineering and Technology
 
 ### Project Description
 Every tab deserves to live. This Chrome extension turns closing a tab into a high-stakes legal battle. Whenever you try to close a webpage, you are immediately dragged into a retro courtroom where a local AI judge named Tab-ney Wright (running on Ollama) puts you on trial to defend why you just killed that tab.
@@ -49,11 +49,53 @@ Git & GitHub (Source control & release distribution)
 
 ### Implementation
 For Software:
+
 # Installation
-[commands]
+
+### 1. Download Project
+Download and extract the project `.zip` file (or clone the repository):
+```bash
+git clone https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court.git
+cd Chrome-Tab-Eviction-Court
+```
+
+### 2. Install Ollama & Pull the AI Model
+1. Download and install **[Ollama](https://ollama.com/)**.
+2. Open your terminal and pull the local Llama 3.2 3B model:
+```bash
+ollama pull llama3.2:3b
+```
+
+### 3. Setup Python Virtual Environment & Dependencies
+Create a Python virtual environment and install backend dependencies:
+```bash
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 4. Load the Chrome Extension
+1. Open Google Chrome and go to `chrome://extensions/`.
+2. Enable **Developer mode** via the top-right toggle switch.
+3. Click **Load unpacked**.
+4. Select the `extension/` directory inside the project folder.
+
+---
 
 # Run
-[commands]
+
+### 1. Launch the Local Server & AI Backend
+Double-click or run `run_court.bat` from your project folder:
+```cmd
+run_court.bat
+```
+*This launches both the Ollama engine and the FastAPI server on `http://127.0.0.1:8000`.*
+
+### 2. Test in Chrome
+1. Open any active tab in Google Chrome.
+2. Close the tab.
+3. You will be automatically summoned to the **Tab Eviction Courtroom** to present your defense before Judge Tab-ney Wright!
+
 
 ### Project Documentation
 For Software:
@@ -81,37 +123,16 @@ For Software:
 ![Workflow](Add your workflow/architecture diagram here)
 *Add caption explaining your workflow*
 
-For Hardware:
-
-# Schematic & Circuit
-![Circuit](Add your circuit diagram here)
-*Add caption explaining connections*
-
-![Schematic](Add your schematic diagram here)
-*Add caption explaining the schematic*
-
-# Build Photos
-![Components](Add photo of your components here)
-*List out all components shown*
-
-![Build](Add photos of build process here)
-*Explain the build steps*
-
-![Final](Add photo of final product here)
-*Explain the final build*
-
 ### Project Demo
 # Video
-[Add your demo video link here]
-*Explain what the video demonstrates*
+[Video Link](https://drive.google.com/file/d/1H3EtlZkuHIhQEKU5VeuETLDfvTjsMj4I/view?usp=sharing)
+*This video demonstrates the tab eviction court in action.*
 
-# Additional Demos
-[Add any extra demo materials/links]
 
 ## Team Contributions
-- [Name 1]: [Specific contributions]
-- [Name 2]: [Specific contributions]
-- [Name 3]: [Specific contributions]
+- **Seona Ann Tom**: Developed the FastAPI backend architecture, local Ollama Llama 3.2 3B prompt engineering & structured verdict inference engine, automated ReportLab PDF court affidavit generator, and Discord webhook notification system.
+- **Arfan V Anulal**: Designed and implemented the retro Ace Attorney courtroom UI/UX, interactive typewriter dialogue system, dynamic audio engine (SFX & TTS speech synthesis), CSS stage animations, and Chrome Extension Manifest V3 background tab management.
+
 
 ---
 Made with ❤️ at TinkerHub Useless Projects 

@@ -30,19 +30,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ----------------- WEBHOOK CONFIGURATION -----------------
-# Safe environment loader prevents token invalidation upon pushing to public repositories
-def load_env():
-    env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-    if os.path.exists(env_file):
-        with open(env_file, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    os.environ.setdefault(k.strip(), v.strip())
-
-load_env()
 # ----------------- WEBHOOK -----------------
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1545823430459400245/Tlo4zwGJaWMJmRqQLua7U5ZOcZNjJtCGcJ_VrtSR51-B06RfMS3aYFUE035-Q0V9JXMg"
 # -----------------------------------------------------------
