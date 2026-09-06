@@ -59,14 +59,20 @@ For Software:
 For Software:
 
 # Screenshots (Add at least 3)
-![Screenshot1](Add screenshot 1 here with proper name)
-*Add caption explaining what this shows*
+![Screenshot1.png](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot1.png)Courtin Session-1
+*Case is called in the court*
 
-![Screenshot2](Add screenshot 2 here with proper name)
-*Add caption explaining what this shows*
+![[Screenshot2]](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot2.png)verdict-1
+*User is found guilty*
 
-![Screenshot3](Add screenshot 3 here with proper name)
-*Add caption explaining what this shows*
+![[Screenshot3]](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot%203.png)Court order
+*Court order on being guilty*
+
+![[Screenshot4]](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot4.png)Court Session-2
+*Case is called in the court*
+
+![[Screenshot5]](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot5.png)Verdict -2
+*User is pardoned*
 
 # Diagrams
 ![Workflow](Add your workflow/architecture diagram here)
