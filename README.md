@@ -101,30 +101,56 @@ run_court.bat
 For Software:
 
 # Screenshots (Add at least 3)
-![[Screenshot1]](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot1.png)(Courtin Session-1)
+![Court in Session 1](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot1.png)
 *Case is being presented in the court*
 
-![[Screenshot2]](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot2.png)(Verdict-1)
+![Verdict 1](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot2.png)
 *User found Guilty*
 
-![[Screenshot3]](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot%203.png)(Court order)
+![Court Order Guilty](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot%203.png)
 *Court order on being guilty*
 
-![[Screenshot4]](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot4.png)(Courtin Session-2)
+![Court in Session 2](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot4.png)
 *Case is being presented in the court*
 
-![[Screenshot5]](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot5.png)(Verdict-2)
+![Verdict 2](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot5.png)
 *User Pardoned*
 
-![[Screenshot6]](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot6.png)(Court Order)
+![Court Order Pardoned](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot6.png)
 *Court order on pardoned*
 
-![[Screenshot7]](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot7.png)(Discord Notification)
+![Conviction Notification](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot7.png)(Discord Notification)
 *Discord Notification for conviction*
 
 # Diagrams
-![Workflow](Add your workflow/architecture diagram here)
-*Add caption explaining your workflow*
+
+```mermaid
+graph TD
+    subgraph Extension ["🌐 Chrome Extension (MV3)"]
+        A[User Closes Tab] --> B[Background Worker Intercepts Event]
+        B --> C[Open Courtroom UI index.html]
+    end
+
+    subgraph UI ["⚖️ Ace Attorney Courtroom UI"]
+        C --> D[Defendant Submits Defense Plea]
+    end
+
+    subgraph Backend ["⚡ FastAPI & Ollama AI Engine"]
+        D -->|POST /verdict| E[FastAPI Server main.py]
+        E -->|System Prompt & Context| F[Ollama Llama 3.2 3B Model]
+        F -->|JSON Verdict & Thermal Roast| E
+    end
+
+    subgraph Actions ["📜 Verdict Execution & Webhooks"]
+        E --> G{Magistrate Ruling}
+        G -->|GUILTY| H[Resurrect Tab & Lock Chrome Session]
+        G -->|PARDONED| I[Grant Tab Eviction]
+        E --> J[Generate PDF Court Affidavit via ReportLab]
+        E --> K[Post Trial Docket to Discord Webhook]
+    end
+```
+*System Architecture & Workflow of Attorney General Tab-ney Wright's Courtroom*
+
 
 ### Project Demo
 # Video
