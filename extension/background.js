@@ -273,37 +273,64 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
 
   const session = await getCourtSession();
 
-  // If court session is marked ADJOURNED or not active, allow normal closure
-  if (session.courtStatus === "ADJOURNED" || !session.isCourtActive) {
+  // If court session is marked ADJOURNED or not active, allow normal eviction flow
+  if (session.courtStatus === "ADJOURNED") {
     delete tabCache[tabId];
     return;
   }
 
-  // Annoyance: Only resurrect IF court is actively IN_SESSION!
-  // If the court is ADJOURNED, allow the tab to close cleanly without resurrection!
-  if (session.courtStatus === "IN_SESSION" && session.isCourtActive && tabId === session.activeCourtTabId && session.activeCourtUrl) {
-    console.warn("[Tab Courtroom] Contempt of court! Escape attempt blocked. Re-opening courtroom!");
-    const baseCourtUrl = session.activeCourtUrl;
-    const sep = baseCourtUrl.includes("?") ? "&" : "?";
-    const contemptUrl = baseCourtUrl.includes("contempt=1") ? baseCourtUrl : `${baseCourtUrl}${sep}contempt=1`;
+  // Validate stale session: if court thinks it's IN_SESSION but the tracked tab no longer exists,
+  // auto-clear the stale session so new closures trigger a courtroom properly.
+  if (session.isCourtActive && session.courtStatus === "IN_SESSION" && session.activeCourtTabId) {
+    let courtTabExists = false;
+    try {
+      const existingTab = await chrome.tabs.get(session.activeCourtTabId);
+      courtTabExists = Boolean(existingTab);
+    } catch {
+      // Tab doesn't exist anymore
+      courtTabExists = false;
+    }
 
-    chrome.tabs.create({ url: contemptUrl, active: true }, async (newTab) => {
-      if (newTab && newTab.id) {
-        const fullUrl = `${contemptUrl}&courtTabId=${newTab.id}&courtWinId=${newTab.windowId}`;
-        chrome.tabs.update(newTab.id, { url: fullUrl }).catch(() => {});
-        await setCourtSession({
-          isCourtActive: true,
-          courtStatus: "IN_SESSION",
-          activeCourtTabId: newTab.id,
-          activeCourtWindowId: newTab.windowId,
-          activeCourtUrl: fullUrl
+    if (!courtTabExists) {
+      console.warn("[Tab Courtroom] Stale court session detected (court tab gone). Clearing session.");
+      await setCourtSession({
+        isCourtActive: false,
+        courtStatus: "IDLE",
+        activeCourtTabId: null,
+        activeCourtWindowId: null,
+        activeCourtUrl: null
+      });
+      // Fall through to normal eviction flow below
+    } else {
+      // Court tab exists and is active — handle escape attempt or ignore non-court tabs
+      if (tabId === session.activeCourtTabId && session.activeCourtUrl) {
+        console.warn("[Tab Courtroom] Contempt of court! Escape attempt blocked. Re-opening courtroom!");
+        const baseCourtUrl = session.activeCourtUrl;
+        const sep = baseCourtUrl.includes("?") ? "&" : "?";
+        const contemptUrl = baseCourtUrl.includes("contempt=1") ? baseCourtUrl : `${baseCourtUrl}${sep}contempt=1`;
+
+        chrome.tabs.create({ url: contemptUrl, active: true }, async (newTab) => {
+          if (newTab && newTab.id) {
+            const fullUrl = `${contemptUrl}&courtTabId=${newTab.id}&courtWinId=${newTab.windowId}`;
+            chrome.tabs.update(newTab.id, { url: fullUrl }).catch(() => {});
+            await setCourtSession({
+              isCourtActive: true,
+              courtStatus: "IN_SESSION",
+              activeCourtTabId: newTab.id,
+              activeCourtWindowId: newTab.windowId,
+              activeCourtUrl: fullUrl
+            });
+            if (newTab.windowId) {
+              chrome.windows.update(newTab.windowId, { state: "fullscreen", focused: true }).catch(() => {});
+            }
+          }
         });
-        if (newTab.windowId) {
-          chrome.windows.update(newTab.windowId, { state: "fullscreen", focused: true }).catch(() => {});
-        }
+        return;
       }
-    });
-    return;
+      // Non-courtroom tab closed while court is active — don't open another courtroom
+      delete tabCache[tabId];
+      return;
+    }
   }
 
   const closedTab = tabCache[tabId];
