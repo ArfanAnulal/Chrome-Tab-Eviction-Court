@@ -119,6 +119,9 @@ For Software:
 ![[Screenshot6]](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot6.png)(Court Order)
 *Court order on pardoned*
 
+![[Screenshot7]](https://github.com/ArfanAnulal/Chrome-Tab-Eviction-Court/blob/main/Screenshot7.png)(Discord Notification)
+*Discord Notification for conviction*
+
 # Diagrams
 ![Workflow](Add your workflow/architecture diagram here)
 *Add caption explaining your workflow*
